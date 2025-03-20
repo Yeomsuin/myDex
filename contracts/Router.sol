@@ -72,6 +72,6 @@ contract Router is IRouter {
         IERC20(pair).transferFrom(msg.sender, pair, liquidity);
         (amount0, amount1) = IPair(pair).burn(to);
 
-        require(amount0 >= amount0Min && amount1 >= amount1Min);        
+        require(amount0 >= amount0Min && amount1 >= amount1Min);  
     }
 }

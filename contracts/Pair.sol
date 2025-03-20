@@ -81,8 +81,25 @@ contract Pair is ERC20, IPair {
         k = reserve0 * reserve1;
     }
 
-    function burn(address to) public {
-        
+    function burn(address to) public returns (uint amount0, uint amount1){
+        uint balance0 = IERC20(token0).balanceOf(address(this));
+        uint balance1 = IERC20(token1).balanceOf(address(this));
+        uint totalSupply = totalSupply();
+
+        uint liquidity = balanceOf(address(this));
+
+        amount0 = liquidity * balance0 / totalSupply;
+        amount1 = liquidity * balance1 / totalSupply;
+
+        _burn(address(this), liquidity); 
+        IERC20(token0).transfer(to, amount0);
+        IERC20(token1).transfer(to, amount1);
+
+        balance0 = IERC20(token0).balanceOf(address(this));
+        balance1 = IERC20(token1).balanceOf(address(this));
+
+        _update(balance0, balance1);
+        k = reserve0 * reserve1;
     }
  
     function getReserves () public view returns (uint _reserve0, uint _reserve1) {
