@@ -25,6 +25,12 @@ contract Pair is ERC20, IPair {
         k = reserve0 * reserve1;
     }
 
+    function _update(uint balance0, uint balance1) private {
+        reserve0 = balance0;
+        reserve1 = balance1;
+    }
+
+
     /**
      * @notice Output Token의 Amount를 고정하고 Input의 양을 수수료를 포함하여 결정하는 함수. 결정식은 다음과 같다.
      * dx = x * dy / (y - dy) * 0.997 (fee 0.03%)
@@ -57,19 +63,24 @@ contract Pair is ERC20, IPair {
         uint amount0 = balance0 - reserve0;
         uint amount1 = balance1 - reserve1;
 
+        // governance token에 대한 Fee *추가 
+
         if(totalSupply == 0){
             liquidity = Math.sqrt(amount0 * amount1);
+            // Vault Infletion attack 방지를 위한 minLiquidity 소각 *추가 해야함.
         }
         else{
             // LP의 지분(amount0 / reserve0) * 발행량(totalSupply)
-            liquidity = amount0 * totalSupply / reserve0;
+            liquidity = Math.min(amount0 * totalSupply / reserve0, amount1 * totalSupply / reserve1);
         }
 
+        require(liquidity > 0 );
+        _mint(to, liquidity);
 
-
-
+        _update(balance0, balance1);
+        k = reserve0 * reserve1;
     }
- 
+
     function burn(address to) public {
         
     }
