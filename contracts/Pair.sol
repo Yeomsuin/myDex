@@ -106,4 +106,7 @@ contract Pair is ERC20, IPair {
         _reserve0 = reserve0;
         _reserve1 = reserve1;
     }
+
+    function swap(uint amount0Out, uint amount1Out, address to) public {
+    }
 }

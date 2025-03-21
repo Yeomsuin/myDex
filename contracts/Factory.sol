@@ -12,8 +12,9 @@ import "./lib/library.sol";
 contract Factory is IFactory{
     
     event NewPair(
-        address indexed token,
-        address indexedPair
+        address indexed token0,
+        address indexed token1,
+        address indexed Pair
     );
 
     address public owner;
@@ -38,11 +39,11 @@ contract Factory is IFactory{
         Pair p = new Pair(token0, token1);
         address _pair = address(p);
         tokensToPair[token0][token1] = _pair;
-        emit NewPair(_address, exAddr);
+        emit NewPair(token0, token1, _pair);
         return _pair;
     }
 
-    function getTokensToPair(address token0, address token1) external returns(address pair){
+    function getTokensToPair(address token0, address token1) external view returns(address pair){
         return tokensToPair[token0][token1];
     }
 

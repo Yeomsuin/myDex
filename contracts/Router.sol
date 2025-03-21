@@ -73,4 +73,26 @@ contract Router is IRouter {
 
         require(amount0 >= amount0Min && amount1 >= amount1Min);  
     }
+
+    function swapExactTokenToToken(address token0, address token1, uint amountIn, uint amountOutMin, address to) public returns (uint amountOut){
+        (token0, token1) = Library.sortTokens(token0, token1);
+        address pair = IFactory(factory).getTokensToPair(token0, token1);
+        (uint reserve0, uint reserve1) = IPair(pair).getReserves();
+        amountOut = Library.getOutputAmount(amountIn, reserve0, reserve1);
+        require(amountOut >= amountOutMin);
+
+        IERC20(token0).transfer(pair, amountIn);
+        IPair(pair).swap(0, amountOut, to);
+    }
+
+    function swapTokenToExactToken(address token0, address token1, uint amountOut, uint amountInMax, address to) public returns (uint amountIn){
+        (token0, token1) = Library.sortTokens(token0, token1);
+        address pair = IFactory(factory).getTokensToPair(token0, token1);
+        (uint reserve0, uint reserve1) = IPair(pair).getReserves();
+        amountIn = Library.getInputAmount(amountOut, reserve0, reserve1);
+        require(amountIn <= amountInMax);
+
+        IERC20(token0).transfer(pair, amountOut);
+        IPair(pair).swap(amountIn, 0, to);
+    }
 }
