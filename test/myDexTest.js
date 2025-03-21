@@ -4,6 +4,7 @@ const {
   const { anyValue } = require("@nomicfoundation/hardhat-chai-matchers");
   const { expect } = require("chai");
 const { ethers } = require("hardhat");
+const { extendProvider } = require("hardhat/config");
 
 let LP, alice, bob, suin, usdt, factory, pair, router;
 
@@ -100,16 +101,19 @@ describe("myDex", function() {
     
 
     describe("Mint Tokens", async function () {
-        it("Should correctly mint tokens", async function() {
+        it("Shound correctly mint init 100/1 SUIN tokens to LP/Users", async function() {
             suin.mint(LP, ethers.parseEther("100"));
             await suin.mint(alice, ethers.parseEther("1"));
             await suin.mint(bob, ethers.parseEther("1"));
-            await usdt.mint(LP, ethers.parseEther("10000"));
-            await usdt.mint(alice, ethers.parseEther("100"));
-            await usdt.mint(bob, ethers.parseEther("100"));
             expect(await suin.balanceOf(LP)).to.equal(ethers.parseEther("100"));
             expect(await suin.balanceOf(alice)).to.equal(ethers.parseEther("1"));
             expect(await suin.balanceOf(bob)).to.equal(ethers.parseEther("1"));
+        })
+
+        it("Shound correctly mint init 10000/100 USDT tokens to LP/Users", async function() {
+            await usdt.mint(LP, ethers.parseEther("10000"));
+            await usdt.mint(alice, ethers.parseEther("100"));
+            await usdt.mint(bob, ethers.parseEther("100"));
             expect(await usdt.balanceOf(LP)).to.equal(ethers.parseEther("10000"));
             expect(await usdt.balanceOf(alice)).to.equal(ethers.parseEther("100"));
             expect(await usdt.balanceOf(bob)).to.equal(ethers.parseEther("100"));
@@ -117,9 +121,8 @@ describe("myDex", function() {
     })
 
 
-
-    describe("Add Liquidity", async function () {
-        it("Should correctly add liquidity", async function() {
+    describe("Simple Liquidity", async function () {
+        it("Should correctly init add liquidity", async function() {
             await suin.connect(LP).approve(router.target, ethers.parseEther("100"));
             await usdt.connect(LP).approve(router.target, ethers.parseEther("10000"));
             await router.connect(LP).addLiquidity(suin, usdt, ethers.parseEther("100"), ethers.parseEther("10000"), 0, 0, LP);
@@ -127,5 +130,22 @@ describe("myDex", function() {
             expect(await usdt.balanceOf(pair.target)).to.equal(ethers.parseEther("10000"));
             expect(await pair.balanceOf(LP)).to.equal(ethers.parseEther("1000"));
         })
+
+        it("Should correctly remove liquidity", async function() {
+            await pair.connect(LP).approve(router.target, ethers.parseEther("500"));
+            await router.connect(LP).removeLiquidity(suin, usdt, ethers.parseEther("500"), LP);
+            expect(await suin.balanceOf(pair.target)).to.equal(ethers.parseEther("50"));
+            expect(await usdt.balanceOf(pair.target)).to.equal(ethers.parseEther("5000"));
+            expect(await pair.balanceOf(LP)).to.equal(ethers.parseEther("500"));
+
+            // 원상 복구
+            await suin.connect(LP).approve(router.target, ethers.parseEther("50"));
+            await usdt.connect(LP).approve(router.target, ethers.parseEther("5000"));
+            await router.connect(LP).addLiquidity(suin, usdt, ethers.parseEther("50"), ethers.parseEther("5000"), 0, 0, LP);
+            expect(await suin.balanceOf(pair.target)).to.equal(ethers.parseEther("100"));
+            expect(await usdt.balanceOf(pair.target)).to.equal(ethers.parseEther("10000"));
+            expect(await pair.balanceOf(LP)).to.equal(ethers.parseEther("1000"));
+        })
+
     })
 });

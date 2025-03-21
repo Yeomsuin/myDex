@@ -28,9 +28,8 @@ contract Router is IRouter {
      * @param amount1Min    Slippage로 발생할 수 있는 손해의 최댓값 설정
      */ 
     function _addLiquidity(address token0, address token1, uint amount0, uint amount1, uint amount0Min, uint amount1Min) private returns (uint finalAmount0, uint finalAmount1){
-        (token0, token1) = Library.sortTokens(token0, token1);
         (uint reserve0, uint reserve1) = Library.getReserves(factory, token0, token1);
-        
+
         if(reserve0 == 0 && reserve1 == 0){
             (finalAmount0, finalAmount1) = (amount0, amount1);
         }
@@ -64,13 +63,11 @@ contract Router is IRouter {
     }
 
 
-    function removeLiquidity(address token0, address token1, uint liquidity, uint amount0Min, uint amount1Min, address to) public returns (uint amount0, uint amount1){
+    function removeLiquidity(address token0, address token1, uint liquidity, address to) public returns (uint amount0, uint amount1){
         (token0, token1) = Library.sortTokens(token0, token1);
         address pair = IFactory(factory).getTokensToPair(token0, token1);
         IERC20(pair).transferFrom(msg.sender, pair, liquidity);
         (amount0, amount1) = IPair(pair).burn(to);
-
-        require(amount0 >= amount0Min && amount1 >= amount1Min);  
     }
 
     function swapExactTokenToToken(address token0, address token1, uint amountIn, uint amountOutMin, address to) public returns (uint amountOut){

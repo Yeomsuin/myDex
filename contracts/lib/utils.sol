@@ -17,8 +17,10 @@ library Library {
     }
 
     function getReserves(address factory, address token0, address token1) public returns (uint reserve0, uint reserve1) {
+        (address tokenA,) = sortTokens(token0, token1);
         address _pair = getPair(factory, token0, token1);
         (reserve0, reserve1) = IPair(_pair).getReserves();
+        (reserve0, reserve1) = tokenA == token0 ? (reserve0, reserve1) : (reserve1, reserve0);
     }
 
     
