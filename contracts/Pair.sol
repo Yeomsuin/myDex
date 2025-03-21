@@ -5,7 +5,7 @@ pragma solidity ^0.8.28;
 import "hardhat/console.sol";
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import "@openzeppelin/utils/math/Math.sol";
+import "@openzeppelin/contracts/utils/math/Math.sol";
 import "./interfaces/IPair.sol";
 
 contract Pair is ERC20, IPair {
@@ -20,9 +20,9 @@ contract Pair is ERC20, IPair {
     constructor(address _token0, address _token1) ERC20("Uniswap LP", "UNI-LP") {
         (token0, token1) = (_token0, _token1);
         owner = msg.sender;
-        reserve0 = 100*10**18;
-        reserve1 = 100*10**18;
-        k = reserve0 * reserve1;
+        reserve0 = 0;
+        reserve1 = 0;
+        k = 0;
     }
 
     function _update(uint balance0, uint balance1) private {
@@ -34,7 +34,6 @@ contract Pair is ERC20, IPair {
     function mint(address to) public returns (uint liquidity) {
         uint balance0 = IERC20(token0).balanceOf(address(this));
         uint balance1 = IERC20(token1).balanceOf(address(this));
-        
         uint totalSupply = totalSupply();
 
         uint amount0 = balance0 - reserve0;
@@ -50,8 +49,8 @@ contract Pair is ERC20, IPair {
             // LP의 지분(amount0 / reserve0) * 발행량(totalSupply)
             liquidity = Math.min(amount0 * totalSupply / reserve0, amount1 * totalSupply / reserve1);
         }
-
         require(liquidity > 0 );
+
         _mint(to, liquidity);
 
         _update(balance0, balance1);

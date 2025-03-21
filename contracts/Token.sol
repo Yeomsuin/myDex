@@ -6,12 +6,11 @@ pragma solidity ^0.8.28;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
-contract TokenA is ERC20{
+contract Token is ERC20{
     address public owner;
 
     constructor(string memory name, string memory symbol) ERC20(name, symbol) {
         owner = msg.sender;
-        mint(owner, 100*10**18);
     }
 
     /**
