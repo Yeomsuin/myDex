@@ -31,29 +31,6 @@ contract Pair is ERC20, IPair {
     }
 
 
-    /**
-     * @notice Output Token의 Amount를 고정하고 Input의 양을 수수료를 포함하여 결정하는 함수. 결정식은 다음과 같다.
-     * dx = x * dy / (y - dy) * 0.997 (fee 0.03%)
-     * @param outputAmount Swap할 Output Amount를 받는다.
-     * @return OutputAmount에 대한 InputAmount를 계산한 값을 반환한다.
-     */
-    function getInputAmount(uint outputAmount, uint inputReserve, uint outputReserve) public view returns (uint) {
-        uint inputAmount = reserve0 * outputAmount / (reserve1 - outputAmount);
-        return inputAmount * 1000 / 997;
-    }
-
-    /**
-     * @notice etherToTokenSwapWithFixedInput()에서 호출되며 수량 결정 수식은 다음과 같다.
-     * dy = y * dx / (x + dx) * 997 / 1000
-     * @param inputAmount Swap할 Input Amount를 받는다. 
-     * @return InputAmount에 대한 OutputAmount를 계산한 값을 반환한다.
-     */
-    function getOutputAmount(uint inputAmount) public view returns (uint){
-        uint outputAmount = reserve1 * inputAmount / (reserve0 + inputAmount);
-        return outputAmount * 997 / 1000;
-    }
-
-
     function mint(address to) public returns (uint liquidity) {
         uint balance0 = IERC20(token0).balanceOf(address(this));
         uint balance1 = IERC20(token1).balanceOf(address(this));
@@ -101,9 +78,33 @@ contract Pair is ERC20, IPair {
         _update(balance0, balance1);
         k = reserve0 * reserve1;
     }
+
  
     function getReserves () public view returns (uint _reserve0, uint _reserve1) {
         _reserve0 = reserve0;
         _reserve1 = reserve1;
+    }
+
+
+    function swap(uint amount0Out, uint amount1Out, address to) public {
+        if(amount0Out > 0) IERC20(token0).transfer(to, amount0Out);
+        if(amount1Out > 0) IERC20(token1).transfer(to, amount1Out);
+        
+        uint balance0 = IERC20(token0).balanceOf(address(this));
+        uint balance1 = IERC20(token1).balanceOf(address(this));
+
+        require(reserve0 > amount0Out && reserve1 > amount1Out);
+
+        uint amount0In = (balance0 > reserve0) ? (balance0 - reserve0) : 0;
+        uint amount1In = (balance1 > reserve1) ? (balance1 - reserve1) : 0;
+
+        require(amount0In > 0 || amount1In > 0);
+
+        uint balance0WithFee = balance0 * 1000 - amount0In * 3;
+        uint balance1WithFee = balance1 * 1000 - amount1In * 3;
+
+        require(balance0WithFee * balance1WithFee >= reserve0 * reserve1 * 1000**2);
+ 
+        _update(balance0, balance1);
     }
 }
