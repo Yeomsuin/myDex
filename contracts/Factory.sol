@@ -5,57 +5,45 @@ pragma solidity ^0.8.28;
 // import "hardhat/console.sol";
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import "./Exchange.sol";
+import "./Pair.sol";
+import "./interfaces/IFactory.sol";
+import "./lib/library.sol";
 
-contract Factory {
+contract Factory is IFactory{
     
-    event NewExchange(
+    event NewPair(
         address indexed token,
-        address indexedexchange
+        address indexedPair
     );
 
     address public owner;
-    mapping(address=>address) public addrToExchange;
-    mapping(address=>address) public exchangeToAddr;
+    mapping(address=>mapping(address=>address)) public tokensToPair;
 
     constructor(){
         owner = msg.sender;
     }
 
     /** 
-    * @notice Factory로부터 새로운 Exchange를 생성하는 함수
-    * @param _address ETH/Token 풀의 Token Contract의 Address
-    * @return 만들어진 ETH/Token Exchange의 주소를 반환
+    * @notice Factory로부터 새로운 Pair를 생성하는 함수
+    * @param tokenA ETH/Token 풀의 TokenA의 주소
+    * @param tokenB ETH/Token 풀의 TokenB의 주소
+    * @return 만들어진 ETH/Token Pair의 주소를 반환
     */
-    function createExchange(address _address) public returns (address){
+    function createPair(address tokenA, address tokenB) public returns (address){
 
-        require(_address != address(0));
-        require(addrToExchange[_address] == address(0));
+        (address token0, address token1) = Library.sortTokens(tokenA, tokenB);
 
-        Exchange ex = new Exchange(_address);
-        address exAddr = address(ex);
-        addrToExchange[_address] = exAddr;
-        exchangeToAddr[exAddr] = _address;
-        emit NewExchange(_address, exAddr);
-        return exAddr;
+        require(tokensToPair[token0][token1] == address(0));
+
+        Pair p = new Pair(token0, token1);
+        address _pair = address(p);
+        tokensToPair[token0][token1] = _pair;
+        emit NewPair(_address, exAddr);
+        return _pair;
     }
 
-    /**
-     * @notice Token Address-> Exchange Address mapping 결과를 반환하는 함수
-     * @param _address Token Address
-     * @return Token Address와 mapping된 Exchange Address 반환
-     */
-    function getAddrToExchange(address _address) view public returns (address){
-        return addrToExchange[_address];
+    function getTokensToPair(address token0, address token1) external returns(address pair){
+        return tokensToPair[token0][token1];
     }
 
-
-    /**
-     * @notice Exchange Address-> Token Address mapping 결과를 반환하는 함수
-     * @param _address Exchange Address
-     * @return Exchange Address와 mapping된 Token Address 반환
-     */
-    function getExchangeToAddr(address _address) view public returns (address){
-        return exchangeToAddr[_address];
-    }
 }
