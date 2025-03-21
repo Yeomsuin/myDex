@@ -26,9 +26,8 @@ contract Router is IRouter {
      * @param amount1       Liquidity Pool에 공급할 token1의 양
      * @param amount0Min    Slippage로 발생할 수 있는 손해의 최댓값 설정
      * @param amount1Min    Slippage로 발생할 수 있는 손해의 최댓값 설정
-     * @param to            LP Token을 받을 주소
      */ 
-    function _addLiquidity(address token0, address token1, uint amount0, uint amount1, uint amount0Min, uint amount1Min, address to) private returns (uint finalAmount0, uint finalAmount1){
+    function _addLiquidity(address token0, address token1, uint amount0, uint amount1, uint amount0Min, uint amount1Min) private returns (uint finalAmount0, uint finalAmount1){
         (token0, token1) = Library.sortTokens(token0, token1);
         (uint reserve0, uint reserve1) = Library.getReserves(factory, token0, token1);
         
@@ -57,7 +56,7 @@ contract Router is IRouter {
 
     // 남은 금액은 어차피 approve만 해놔서 잔돈 안 돌려줘도 됨. / user가 token amount의 권한을 Router에게 줌! 아하 모먼트 ㅋㅋㅋ
     function addLiquidity(address token0, address token1, uint amount0, uint amount1, uint amount0Min, uint amount1Min, address to) public override returns (uint finalAmount0, uint finalAmount1, uint liquidity){
-        (finalAmount0, finalAmount1) = _addLiquidity(token0, token1, amount0, amount1, amount0Min, amount1Min, to);
+        (finalAmount0, finalAmount1) = _addLiquidity(token0, token1, amount0, amount1, amount0Min, amount1Min);
         address pair = IFactory(factory).getTokensToPair(token0, token1);
         IERC20(pair).transferFrom(msg.sender, pair, finalAmount0);
         IERC20(pair).transferFrom(msg.sender, pair, finalAmount1);
