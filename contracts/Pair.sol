@@ -101,12 +101,33 @@ contract Pair is ERC20, IPair {
         _update(balance0, balance1);
         k = reserve0 * reserve1;
     }
+
  
     function getReserves () public view returns (uint _reserve0, uint _reserve1) {
         _reserve0 = reserve0;
         _reserve1 = reserve1;
     }
 
+
     function swap(uint amount0Out, uint amount1Out, address to) public {
+        if(amount0Out > 0) IERC20(token0).transfer(to, amount0Out);
+        if(amount1Out > 0) IERC20(token1).transfer(to, amount1Out);
+        
+        uint balance0 = IERC20(token0).balanceOf(address(this));
+        uint balance1 = IERC20(token1).balanceOf(address(this));
+
+        require(reserve0 > amount0Out && reserve1 > amount1Out);
+
+        uint amount0In = (balance0 > reserve0) : (balance0 - reserve0) ? 0;
+        uint amount1In = (balance1 > reserve1) : (balance1 - reserve1) ? 0;
+
+        require(amount0In > 0 || amount1In > 0);
+
+        uint balance0WithFee = balance0 * 1000 - amount0In * 3;
+        uint balance1WithFee = balance1 * 1000 - amount1In * 3;
+
+        require(balance0WithFee * balance1WithFee >= reserve0 * reserve1 * 1000**2);
+ 
+        _update(balance0, balance1);
     }
 }
