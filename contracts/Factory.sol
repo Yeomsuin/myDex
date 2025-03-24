@@ -2,12 +2,12 @@
 pragma solidity ^0.8.28;
 
 // Uncomment this line to use console.log
-// import "hardhat/console.sol";
+import "hardhat/console.sol";
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "./Pair.sol";
 import "./interfaces/IFactory.sol";
-import "./lib/library.sol";
+import "./lib/utils.sol";
 
 contract Factory is IFactory{
     
@@ -39,6 +39,7 @@ contract Factory is IFactory{
         Pair p = new Pair(token0, token1);
         address _pair = address(p);
         tokensToPair[token0][token1] = _pair;
+        tokensToPair[token1][token0] = _pair;
         emit NewPair(token0, token1, _pair);
         return _pair;
     }
