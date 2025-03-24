@@ -5,7 +5,7 @@ pragma solidity ^0.8.28;
 import "hardhat/console.sol";
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import "./Pair.sol";
+import "./Pool.sol";
 import "./interfaces/IFactory.sol";
 import "./lib/utils.sol";
 
