@@ -88,7 +88,7 @@ contract Pair is ERC20, IPair {
     function swap(uint amount0Out, uint amount1Out, address to) public {
         if(amount0Out > 0) IERC20(token0).transfer(to, amount0Out);
         if(amount1Out > 0) IERC20(token1).transfer(to, amount1Out);
-        
+
         uint balance0 = IERC20(token0).balanceOf(address(this));
         uint balance1 = IERC20(token1).balanceOf(address(this));
 

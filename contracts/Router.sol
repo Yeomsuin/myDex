@@ -27,7 +27,7 @@ contract Router is IRouter {
      * @param amount0Min    Slippage로 발생할 수 있는 손해의 최댓값 설정
      * @param amount1Min    Slippage로 발생할 수 있는 손해의 최댓값 설정
      */ 
-    function _addLiquidity(address token0, address token1, uint amount0, uint amount1, uint amount0Min, uint amount1Min) private returns (uint finalAmount0, uint finalAmount1){
+    function _addLiquidity(address token0, address token1, uint amount0, uint amount1, uint amount0Min, uint amount1Min) private view returns (uint finalAmount0, uint finalAmount1){
         (uint reserve0, uint reserve1) = Library.getReserves(factory, token0, token1);
 
         if(reserve0 == 0 && reserve1 == 0){
@@ -53,7 +53,7 @@ contract Router is IRouter {
         }
     }
 
-    // 남은 금액은 어차피 approve만 해놔서 잔돈 안 돌려줘도 됨. / user가 token amount의 권한을 Router에게 줌! 아하 모먼트 ㅋㅋㅋ
+    // 남은 금액은 어차피 approve만 해놔서 잔돈 안 돌려줘도 됨.
     function addLiquidity(address token0, address token1, uint amount0, uint amount1, uint amount0Min, uint amount1Min, address to) public returns (uint finalAmount0, uint finalAmount1, uint liquidity){
         (finalAmount0, finalAmount1) = _addLiquidity(token0, token1, amount0, amount1, amount0Min, amount1Min);
         address pair = IFactory(factory).getTokensToPair(token0, token1);
@@ -71,24 +71,25 @@ contract Router is IRouter {
     }
 
     function swapExactTokenToToken(address token0, address token1, uint amountIn, uint amountOutMin, address to) public returns (uint amountOut){
-        (token0, token1) = Library.sortTokens(token0, token1);
+        (address tokenA,) = Library.sortTokens(token0, token1);
         address pair = IFactory(factory).getTokensToPair(token0, token1);
-        (uint reserve0, uint reserve1) = IPair(pair).getReserves();
-        amountOut = Library.getOutputAmount(amountIn, reserve0, reserve1);
+        amountOut = Library.getOutputAmount(factory, token0, token1, amountIn);
         require(amountOut >= amountOutMin);
-
-        IERC20(token0).transfer(pair, amountIn);
-        IPair(pair).swap(0, amountOut, to);
+        (uint amount0Out, uint amount1Out) = tokenA == token0 ?  (uint(0), amountOut) : (amountOut, uint(0));
+        IERC20(token0).transferFrom(msg.sender, pair, amountIn);
+        IPair(pair).swap(amount0Out, amount1Out, to);
     }
 
     function swapTokenToExactToken(address token0, address token1, uint amountOut, uint amountInMax, address to) public returns (uint amountIn){
-        (token0, token1) = Library.sortTokens(token0, token1);
+        (address tokenA,) = Library.sortTokens(token0, token1);
         address pair = IFactory(factory).getTokensToPair(token0, token1);
-        (uint reserve0, uint reserve1) = IPair(pair).getReserves();
-        amountIn = Library.getInputAmount(amountOut, reserve0, reserve1);
+        amountIn = Library.getInputAmount(factory, token0, token1, amountOut);
+
         require(amountIn <= amountInMax);
 
-        IERC20(token0).transfer(pair, amountOut);
-        IPair(pair).swap(amountIn, 0, to);
+        (uint amount0Out, uint amount1Out) = tokenA == token0 ? (uint(0), amountOut) : (amountOut, uint(0));
+        
+        IERC20(token0).transferFrom(msg.sender, pair, amountIn);
+        IPair(pair).swap(amount0Out, amount1Out, to);
     }
 }
