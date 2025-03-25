@@ -1,0 +1,12 @@
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.28;
+
+interface IMintCallBack {
+    /// @notice Called to `msg.sender` after minting liquidity to a position from IUniswapV3Pool#mint.
+    /// @dev In the implementation you must pay the pool tokens owed for the minted liquidity.
+    /// The caller of this method must be checked to be a UniswapV3Pool deployed by the canonical UniswapV3Factory.
+    /// @param amount0 The amount of token0 due to the pool for the minted liquidity
+    /// @param amount1 The amount of token1 due to the pool for the minted liquidity
+     /// @param data Any data passed through by the caller via the IUniswapV3PoolActions#mint call
+    function mintCallBack( uint256 amount0, uint256 amount1, bytes calldata data) external;
+}
