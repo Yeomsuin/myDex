@@ -7,10 +7,14 @@ import "hardhat/console.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
+import "./lib/Tick.sol";
+import "./lib/Position.sol";
 import './interfaces/IMintCallback.sol';
 import "./interfaces/IPool.sol";
 
 contract Pool is IPool {
+    using Tick for mapping(int24 => Tick.Info);
+    using Position for mapping(int24 => mapping(int24 => Position.Info));
     address public immutable token0;
     address public immutable token1;
     address public immutable owner;
@@ -36,6 +40,8 @@ contract Pool is IPool {
         bool unlocked;
     }
 
+
+    // [a, b] Position의 유동성, token0/1 pool에 쌓인 Fee
     struct Position {
           // the amount of liquidity owned by this position
         uint128 liquidity;
@@ -47,10 +53,12 @@ contract Pool is IPool {
         uint128 tokensOwed1;
     }
 
-
+    uint256 public feeGrowthGlobal0X128;
+    uint256 public feeGrowthGlobal1X128;
     Slot0 public slot0;
     // [lowerTick][upperTick] => position
     mapping(int24 => mapping(int24 => Position)) public positions;
+    mapping(int24 => Tick.Info) public ticks;
 
     constructor(address _token0, address _token1) {
         (token0, token1) = (_token0, _token1);
@@ -65,26 +73,74 @@ contract Pool is IPool {
         reserve1 = balance1;
     }
 
+    function _updatePosition(address to, int24 tickLower, int24 tickUpper, int128 liquidityDelta, int24 tick) private returns(Position memory position){
+        Slot0 memory _slot0 = slot0; 
+        
+        position = positions[tickLower][tickUpper];
 
+        uint256 _feeGrowthGlobal0X128 = feeGrowthGlobal0X128;
+        uint256 _feeGrowthGlobal1X128 = feeGrowthGlobal1X128; 
 
-
-    function mint( address to, int24 tickLower, int24 tickUpper, uint128 liquidity, bytes calldata data) external returns (uint256 amount0, uint256 amount1){
-
-        // *수정 modify Position -> Liquidity update
-        /*
-         (, int256 amount0Int, int256 amount1Int) =
-            _modifyPosition(
-                ModifyPositionParams({
-                    owner: recipient,
-                    tickLower: tickLower,
-                    tickUpper: tickUpper,
-                    liquidityDelta: int256(amount).toInt128()
-                })
+        bool flippedLower = ticks.update(
+                tickLower,
+                tick,
+                liquidityDelta,
+                _feeGrowthGlobal0X128,
+                _feeGrowthGlobal1X128,
+                false,
+                1e9
             );
 
+        bool flippedUpper = ticks.update(
+                tickLower,
+                tick,
+                liquidityDelta,
+                _feeGrowthGlobal0X128,
+                _feeGrowthGlobal1X128,
+                true,
+                1e9
+            );
+
+        // * tickBitmap 구현 시 추가
+        // if (flippedLower)  tickBitmap.flipTick(tickLower, tickSpacing);
+        
+        // if (flippedUpper)  tickBitmap.flipTick(tickUpper, tickSpacing);
+        
+        // Position 안의 FeeGrowth 구하기 / 유동성 공급/제거로는 Fee는 변화가 없지만 최신화만
+        (uint256 feeGrowthInside0X128, uint256 feeGrowthInside1X128) =
+            ticks.getFeeGrowthInside(tickLower, tickUpper, tick, _feeGrowthGlobal0X128, _feeGrowthGlobal1X128);
+
+        // Position Update
+        position.update(liquidityDelta ,feeGrowthInside0X128, feeGrowthInside1X128);
+
+
+        // 근데 유동성을 0이하로 빼면 어카냐?
+        if(liquidityDelta < 0){
+            if(flippedLower)
+                ticks.clear(tickLower);
+            if(flippedUpper)
+                ticks.clear(tickUpper);
+        }
+    }
+
+    function _modifyPosition(address to, int24 tickLower, int24 tickUpper, int256 liquidityDelta) private returns(Position memory position, int256 amount0, int256 amount1){
+        require(tickLower < tickUpper, 'TLU');
+        Slot0 memory _slot0 = slot0; 
+
+
+
+    }
+
+
+
+    function mint( address to, int24 tickLower, int24 tickUpper, uint128 amount, bytes calldata data) external returns (uint256 amount0, uint256 amount1){
+
+        // *수정 modify Position -> Liquidity update
+        
+         (, int256 amount0Int, int256 amount1Int) = _modifyPosition(to, tickLower, tickUpper, int256(int128(amount)));
+        
         amount0 = uint256(amount0Int);
         amount1 = uint256(amount1Int);
-        */
 
         uint256 balance0Before;
         uint256 balance1Before;
@@ -127,16 +183,6 @@ contract Pool is IPool {
     function getReserves () public view returns (uint _reserve0, uint _reserve1) {
         _reserve0 = reserve0;
         _reserve1 = reserve1;
-    }
-
-
-    function getPositions(int24 _tickLower, int24 _tickUpper) external view returns (uint128 liquidity, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128, uint128 tokensOwed0, uint128 tokensOwed1){
-        Position memory position = positions[_tickLower][_tickUpper];
-        liquidity = position.liquidity;
-        feeGrowthInside0LastX128 = position.feeGrowthInside0LastX128;
-        feeGrowthInside1LastX128 = position.feeGrowthInside1LastX128;
-        tokensOwed0 = position.tokensOwed0;
-        tokensOwed1 = position.tokensOwed1;
     }
 
     function getCurrentSqrtPriceX96() external view returns (uint160 sqrtPriceX96){
