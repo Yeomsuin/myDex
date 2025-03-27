@@ -9,10 +9,11 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./interfaces/IMintCallBack.sol";
 import "./lib/utils.sol";
 import "./lib/TickMath.sol";
+import "./lib/SqrtPriceMath.sol";
 
 contract NonfungiblePositionManager is ERC721, IMintCallBack{
     
-        struct Position {
+    struct Positions {
         // the nonce for permits
         uint96 nonce;
         // the address that is approved for spending this token
@@ -43,11 +44,24 @@ contract NonfungiblePositionManager is ERC721, IMintCallBack{
         address to;
     }
 
+    struct AddLiquidityParams {
+        address token0;
+        address token1;
+        int24 tickLower;
+        int24 tickUpper;
+        uint amount0Desired;
+        uint amount1Desired;
+        uint amount0Min;
+        uint amount1Min;
+        uint24 fee;
+        address to;
+    }
+
     // poolAddress -> poolId
     mapping(address => uint80) private _poolIds;
     
     // token Id -> position info
-    mapping(uint256 => Position) private _positions;
+    mapping(uint256 => Positions) private _positions;
     
     // Position.PoolId -> PoolInfo
     mapping(uint80 => PoolInfo) private _poolIdToPoolInfo;
@@ -57,7 +71,6 @@ contract NonfungiblePositionManager is ERC721, IMintCallBack{
     //   address private immutable _tokenDescriptor;
 
     address public factory;
-    uint256 constant Q96 = 0x1000000000000000000000000;
 
     constructor(address _factory) ERC721('Uniswap Positions NFT', 'UNI-POS-NFT'){
         factory = _factory;
@@ -99,100 +112,70 @@ contract NonfungiblePositionManager is ERC721, IMintCallBack{
             uint128 tokensOwed1
         )
     {
-        Position memory position = _positions[tokenId];
-        require(position.poolId != 0, 'Invalid token ID');
-        PoolInfo memory poolInfo = _poolIdToPoolInfo[position.poolId];
+        Positions memory positions = _positions[tokenId];
+        require(positions.poolId != 0, 'Invalid token ID');
+        PoolInfo memory poolInfo = _poolIdToPoolInfo[positions.poolId];
         return (
-            position.nonce,
-            position.operator,
+            positions.nonce,
+            positions.operator,
             poolInfo.token0,
             poolInfo.token1,
             poolInfo.fee,
-            position.tickLower,
-            position.tickUpper,
-            position.liquidity,
-            position.feeGrowthInside0LastX128,
-            position.feeGrowthInside1LastX128,
-            position.tokensOwed0,
-            position.tokensOwed1
+            positions.tickLower,
+            positions.tickUpper,
+            positions.liquidity,
+            positions.feeGrowthInside0LastX128,
+            positions.feeGrowthInside1LastX128,
+            positions.tokensOwed0,
+            positions.tokensOwed1
         );
     }
 
-    /// @notice Computes the amount of liquidity received for a given amount of token0 and price range
-    /// @dev Calculates amount0 * (sqrt(upper) * sqrt(lower)) / (sqrt(upper) - sqrt(lower))
-    /// @param sqrtRatioAX96 A sqrt price representing the first tick boundary
-    /// @param sqrtRatioBX96 A sqrt price representing the second tick boundary
-    /// @param amount0 The amount0 being sent in
-    /// @return liquidity The amount of returned liquidity
-    function getLiquidityForAmount0(
-        uint160 sqrtRatioAX96,
-        uint160 sqrtRatioBX96,
-        uint256 amount0
-    ) internal pure returns (uint128 liquidity) {
-        if (sqrtRatioAX96 > sqrtRatioBX96) (sqrtRatioAX96, sqrtRatioBX96) = (sqrtRatioBX96, sqrtRatioAX96);
-        uint256 intermediate = sqrtRatioAX96 * sqrtRatioBX96 / Q96;
-        return uint128((amount0 * intermediate / (sqrtRatioBX96 - sqrtRatioAX96)));
-    }
-
-    /// @notice Computes the amount of liquidity received for a given amount of token1 and price range
-    /// @dev Calculates amount1 / (sqrt(upper) - sqrt(lower)).
-    /// @param sqrtRatioAX96 A sqrt price representing the first tick boundary
-    /// @param sqrtRatioBX96 A sqrt price representing the second tick boundary
-    /// @param amount1 The amount1 being sent in
-    /// @return liquidity The amount of returned liquidity
-    function getLiquidityForAmount1(
-        uint160 sqrtRatioAX96,
-        uint160 sqrtRatioBX96,
-        uint256 amount1
-    ) internal pure returns (uint128 liquidity) {
-        if (sqrtRatioAX96 > sqrtRatioBX96) (sqrtRatioAX96, sqrtRatioBX96) = (sqrtRatioBX96, sqrtRatioAX96);
-        return uint128((amount1 * Q96 /  (sqrtRatioBX96 - sqrtRatioAX96)));
-    }
 
     // 남은 금액은 어차피 approve만 해놔서 잔돈 안 돌려줘도 됨.
-    function addLiquidity(address token0, address token1, int24 tickLower, int24 tickUpper, uint amount0Desired, uint amount1Desired, uint amount0Min, uint amount1Min, uint24 fee, address to) public returns (uint256 amount0, uint256 amount1, uint128 liquidity, uint256 tokenId){
+    function addLiquidity(AddLiquidityParams calldata params) public returns (uint256 amount0, uint256 amount1, uint128 liquidity, uint256 tokenId){
         
-        PoolInfo memory poolInfo = PoolInfo({token0: token0, token1: token1, fee: fee});
+        PoolInfo memory poolInfo = PoolInfo({token0: params.token0, token1: params.token1, fee: params.fee});
 
-        IPool pool = IPool(Library.getPool(factory, token0, token1));        
+        IPool pool = IPool(Library.getPool(factory, params.token0, params.token1));        
 
         {
             uint160 sqrtPriceX96 = pool.getCurrentSqrtPriceX96();
-            uint160 sqrtRatioAX96 = TickMath.getSqrtRatioAtTick(tickLower);
-            uint160 sqrtRatioBX96 = TickMath.getSqrtRatioAtTick(tickUpper);
+            uint160 sqrtRatioAX96 = TickMath.getSqrtRatioAtTick(params.tickLower);
+            uint160 sqrtRatioBX96 = TickMath.getSqrtRatioAtTick(params.tickUpper);
 
             // tick이 음수인 경우 swap
             if (sqrtRatioAX96 > sqrtRatioBX96) (sqrtRatioAX96, sqrtRatioBX96) = (sqrtRatioBX96, sqrtRatioAX96);
 
             if (sqrtPriceX96 <= sqrtRatioAX96) {
-                liquidity = getLiquidityForAmount0(sqrtRatioAX96, sqrtRatioBX96, amount0Desired);
+                liquidity = SqrtPriceMath.getLiquidityForAmount0(sqrtRatioAX96, sqrtRatioBX96, params.amount0Desired);
             } 
             else if (sqrtPriceX96 < sqrtRatioBX96) {
-                uint128 liquidity0 = getLiquidityForAmount0(sqrtPriceX96, sqrtRatioBX96, amount0Desired);
-                uint128 liquidity1 = getLiquidityForAmount1(sqrtRatioAX96, sqrtPriceX96, amount1Desired);
+                uint128 liquidity0 = SqrtPriceMath.getLiquidityForAmount0(sqrtPriceX96, sqrtRatioBX96, params.amount0Desired);
+                uint128 liquidity1 = SqrtPriceMath.getLiquidityForAmount1(sqrtRatioAX96, sqrtPriceX96, params.amount1Desired);
 
                 liquidity = liquidity0 < liquidity1 ? liquidity0 : liquidity1;
             } else {
-                liquidity = getLiquidityForAmount1(sqrtRatioAX96, sqrtRatioBX96, amount1Desired);
+                liquidity = SqrtPriceMath.getLiquidityForAmount1(sqrtRatioAX96, sqrtRatioBX96, params.amount1Desired);
             }
         }
 
-        (amount0, amount1) = pool.mint(to, tickLower, tickUpper, liquidity, abi.encode(MintCallbackData({poolInfo: poolInfo, to : msg.sender})));
+        (amount0, amount1) = pool.mint(params.to, params.tickLower, params.tickUpper, liquidity, abi.encode(MintCallbackData({poolInfo: poolInfo, to : msg.sender})));
 
-        require(amount0 >= amount0Min && amount1 >= amount1Min, 'Price slippage check');
+        require(amount0 >= params.amount0Min && amount1 >= params.amount1Min, 'Price slippage check');
 
-        _mint(to, (tokenId = _nextId++));
+        _mint(params.to, (tokenId = _nextId++));
 
-        (, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128, , ) = pool.getPositions(tickLower, tickUpper);
+        (, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128, , ) = pool.positions(params.tickLower, params.tickUpper);
 
-        uint80 poolId = cachePoolInfo( address(pool), PoolInfo({token0: token0, token1: token1, fee: fee}));
+        uint80 poolId = cachePoolInfo( address(pool), PoolInfo({token0: params.token0, token1: params.token1, fee: params.fee}));
 
-         _positions[tokenId] = Position({
+         _positions[tokenId] = Positions({
             nonce: 0,
             operator: address(0),
             poolId: poolId,
-            tickLower: tickLower,
-            tickUpper: tickUpper,
+            tickLower: params.tickLower,
+            tickUpper: params.tickUpper,
             liquidity: liquidity,
             feeGrowthInside0LastX128: feeGrowthInside0LastX128,
             feeGrowthInside1LastX128: feeGrowthInside1LastX128,
@@ -213,5 +196,10 @@ contract NonfungiblePositionManager is ERC721, IMintCallBack{
     //     IERC20(pair).transferFrom(msg.sender, pair, liquidity);
     //     (amount0, amount1) = IPair(pair).burn(to);
     // }
+
+
+
+
+  
 
 }

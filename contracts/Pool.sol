@@ -9,12 +9,13 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "./lib/Tick.sol";
 import "./lib/Position.sol";
-import './interfaces/IMintCallback.sol';
+import './interfaces/IMintCallBack.sol';
 import "./interfaces/IPool.sol";
 
 contract Pool is IPool {
     using Tick for mapping(int24 => Tick.Info);
     using Position for mapping(int24 => mapping(int24 => Position.Info));
+    using Position for Position.Info;
     address public immutable token0;
     address public immutable token1;
     address public immutable owner;
@@ -40,28 +41,16 @@ contract Pool is IPool {
         bool unlocked;
     }
 
-
-    // [a, b] Position의 유동성, token0/1 pool에 쌓인 Fee
-    struct Position {
-          // the amount of liquidity owned by this position
-        uint128 liquidity;
-        // fee growth per unit of liquidity as of the last update to liquidity or fees owed
-        uint256 feeGrowthInside0LastX128;
-        uint256 feeGrowthInside1LastX128;
-        // the fees owed to the position owner in token0/token1
-        uint128 tokensOwed0;
-        uint128 tokensOwed1;
-    }
-
     uint256 public feeGrowthGlobal0X128;
     uint256 public feeGrowthGlobal1X128;
     Slot0 public slot0;
-    // [lowerTick][upperTick] => position
-    mapping(int24 => mapping(int24 => Position)) public positions;
+    // [lowerTick][upperTick] => position.info
+    mapping(int24 => mapping(int24 => Position.Info)) public positions;
     mapping(int24 => Tick.Info) public ticks;
 
     constructor(address _token0, address _token1) {
-        (token0, token1) = (_token0, _token1);
+        token0 = _token0;
+        token1 = _token1;
         owner = msg.sender;
         reserve0 = 0;
         reserve1 = 0;
@@ -73,8 +62,7 @@ contract Pool is IPool {
         reserve1 = balance1;
     }
 
-    function _updatePosition(address to, int24 tickLower, int24 tickUpper, int128 liquidityDelta, int24 tick) private returns(Position memory position){
-        Slot0 memory _slot0 = slot0; 
+    function _updatePosition(int24 tickLower, int24 tickUpper, int128 liquidityDelta, int24 tick) private returns(Position.Info storage position){
         
         position = positions[tickLower][tickUpper];
 
@@ -123,12 +111,13 @@ contract Pool is IPool {
         }
     }
 
-    function _modifyPosition(address to, int24 tickLower, int24 tickUpper, int256 liquidityDelta) private returns(Position memory position, int256 amount0, int256 amount1){
+    function _modifyPosition(address to, int24 tickLower, int24 tickUpper, int128 liquidityDelta) private returns(Position.Info memory position, int256 amount0, int256 amount1){
         require(tickLower < tickUpper, 'TLU');
         Slot0 memory _slot0 = slot0; 
 
+        position = _updatePosition(tickLower, tickUpper, liquidityDelta, _slot0.tick);
 
-
+        
     }
 
 
@@ -137,7 +126,7 @@ contract Pool is IPool {
 
         // *수정 modify Position -> Liquidity update
         
-         (, int256 amount0Int, int256 amount1Int) = _modifyPosition(to, tickLower, tickUpper, int256(int128(amount)));
+         (, int256 amount0Int, int256 amount1Int) = _modifyPosition(to, tickLower, tickUpper, int128(amount));
         
         amount0 = uint256(amount0Int);
         amount1 = uint256(amount1Int);
