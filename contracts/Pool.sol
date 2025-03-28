@@ -9,6 +9,8 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "./lib/Tick.sol";
 import "./lib/Position.sol";
+import "./lib/SqrtPriceMath.sol";
+import "./lib/TickMath.sol";
 import './interfaces/IMintCallBack.sol';
 import "./interfaces/IPool.sol";
 
@@ -34,27 +36,27 @@ contract Pool is IPool {
         uint16 observationCardinality;
         // the next maximum number of observations to store, triggered in observations.write
         uint16 observationCardinalityNext;
-        // the current protocol fee as a percentage of the swap fee taken on withdrawal
-        // represented as an integer denominator (1/x)%
-        uint8 feeProtocol;
-        // whether the pool is locked
-        bool unlocked;
     }
 
     uint256 public feeGrowthGlobal0X128;
     uint256 public feeGrowthGlobal1X128;
+    uint128 public liquidity;
     Slot0 public slot0;
     // [lowerTick][upperTick] => position.info
     mapping(int24 => mapping(int24 => Position.Info)) public positions;
     mapping(int24 => Tick.Info) public ticks;
 
-    constructor(address _token0, address _token1) {
+    constructor(address _token0, address _token1, uint160 sqrtPriceX96) {
         token0 = _token0;
         token1 = _token1;
         owner = msg.sender;
-        reserve0 = 0;
-        reserve1 = 0;
-        k = 0;
+        slot0 = Slot0({
+         sqrtPriceX96 : sqrtPriceX96,
+         tick : TickMath.getTickAtSqrtRatio(sqrtPriceX96),
+         observationIndex : 0,
+         observationCardinality : 0,
+         observationCardinalityNext : 0
+        });
     }
 
     function _update(uint balance0, uint balance1) private {
@@ -111,22 +113,50 @@ contract Pool is IPool {
         }
     }
 
-    function _modifyPosition(address to, int24 tickLower, int24 tickUpper, int128 liquidityDelta) private returns(Position.Info memory position, int256 amount0, int256 amount1){
+    function _modifyPosition(int24 tickLower, int24 tickUpper, int128 liquidityDelta) private returns(Position.Info memory position, int256 amount0, int256 amount1){
         require(tickLower < tickUpper, 'TLU');
         Slot0 memory _slot0 = slot0; 
 
         position = _updatePosition(tickLower, tickUpper, liquidityDelta, _slot0.tick);
 
+        uint128 liquidityBefore = liquidity;
         
+        if(liquidityDelta != 0){
+            if(_slot0.tick < tickLower){
+                amount0 = SqrtPriceMath.getAmount0Delta(
+                    TickMath.getSqrtRatioAtTick(tickLower),
+                    TickMath.getSqrtRatioAtTick(tickUpper),
+                    liquidityDelta);
+            }
+            else if(_slot0.tick < tickUpper){
+                amount0 = SqrtPriceMath.getAmount0Delta(
+                    _slot0.sqrtPriceX96,
+                    TickMath.getSqrtRatioAtTick(tickUpper),
+                    liquidityDelta);
+                
+                amount1 = SqrtPriceMath.getAmount1Delta(
+                    TickMath.getSqrtRatioAtTick(tickLower),
+                    _slot0.sqrtPriceX96,
+                    liquidityDelta);
+
+                liquidity = liquidityDelta > 0 ? liquidityBefore + uint128(liquidityDelta) : liquidityBefore - uint128(-liquidityDelta);
+            }
+            else {
+                amount1 = SqrtPriceMath.getAmount1Delta(
+                    TickMath.getSqrtRatioAtTick(tickLower),
+                    TickMath.getSqrtRatioAtTick(tickUpper),
+                    liquidityDelta);
+            }
+        }
     }
 
 
 
-    function mint( address to, int24 tickLower, int24 tickUpper, uint128 amount, bytes calldata data) external returns (uint256 amount0, uint256 amount1){
+    function mint(int24 tickLower, int24 tickUpper, uint128 amount, bytes calldata data) external override returns (uint256 amount0, uint256 amount1){
 
         // *수정 modify Position -> Liquidity update
         
-         (, int256 amount0Int, int256 amount1Int) = _modifyPosition(to, tickLower, tickUpper, int128(amount));
+         (, int256 amount0Int, int256 amount1Int) = _modifyPosition(tickLower, tickUpper, int128(amount));
         
         amount0 = uint256(amount0Int);
         amount1 = uint256(amount1Int);
@@ -146,7 +176,7 @@ contract Pool is IPool {
     }
 
 
-    function swap(uint amount0Out, uint amount1Out, address to) public {
+    function swap(uint amount0Out, uint amount1Out, address to) public override {
         if(amount0Out > 0) IERC20(token0).transfer(to, amount0Out);
         if(amount1Out > 0) IERC20(token1).transfer(to, amount1Out);
 
@@ -169,12 +199,26 @@ contract Pool is IPool {
     }
 
 
-    function getReserves () public view returns (uint _reserve0, uint _reserve1) {
+    function getReserves () public view override returns (uint _reserve0, uint _reserve1) {
         _reserve0 = reserve0;
         _reserve1 = reserve1;
     }
 
-    function getCurrentSqrtPriceX96() external view returns (uint160 sqrtPriceX96){
+    function getCurrentSqrtPriceX96() external view override returns (uint160 sqrtPriceX96){
         sqrtPriceX96 = slot0.sqrtPriceX96;
+    }
+
+    function getPositions(int24 tickLower, int24 tickUpper) external view override returns ( uint128 _liquidity, uint256 feeGrowthInside0LastX128,
+        uint256 feeGrowthInside1LastX128,
+        uint128 tokensOwed0,
+        uint128 tokensOwed1){
+
+        Position.Info memory _pos = positions[tickLower][tickUpper];
+
+        _liquidity = _pos.liquidity;
+        feeGrowthInside0LastX128 = _pos.feeGrowthInside0LastX128;
+        feeGrowthInside1LastX128 = _pos.feeGrowthInside1LastX128;
+        tokensOwed0 = _pos.tokensOwed0;
+        tokensOwed1 = _pos.tokensOwed1;
     }
 }

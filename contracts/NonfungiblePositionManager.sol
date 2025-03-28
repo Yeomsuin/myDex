@@ -7,7 +7,7 @@ import "hardhat/console.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./interfaces/IMintCallBack.sol";
-import "./lib/utils.sol";
+import "./lib/PoolHelper.sol";
 import "./lib/TickMath.sol";
 import "./lib/SqrtPriceMath.sol";
 
@@ -77,11 +77,11 @@ contract NonfungiblePositionManager is ERC721, IMintCallBack{
     }
 
 
-   function mintCallBack( uint256 amount0, uint256 amount1, bytes calldata data) external {
+   function mintCallBack( uint256 amount0, uint256 amount1, bytes calldata data) external override{
         MintCallbackData memory decoded = abi.decode(data, (MintCallbackData));
 
         // callback validation
-        require(msg.sender == Library.getPool(factory, decoded.poolInfo.token0, decoded.poolInfo.token1), 'Invalid sender');
+        require(msg.sender == PoolHelper.getPool(factory, decoded.poolInfo.token0, decoded.poolInfo.token1), 'Invalid sender');
 
         if (amount0 > 0) IERC20(decoded.poolInfo.token0).transferFrom(decoded.to, msg.sender, amount0);
         if (amount1 > 0) IERC20(decoded.poolInfo.token1).transferFrom(decoded.to, msg.sender, amount1);
@@ -137,7 +137,7 @@ contract NonfungiblePositionManager is ERC721, IMintCallBack{
         
         PoolInfo memory poolInfo = PoolInfo({token0: params.token0, token1: params.token1, fee: params.fee});
 
-        IPool pool = IPool(Library.getPool(factory, params.token0, params.token1));        
+        IPool pool = IPool(PoolHelper.getPool(factory, params.token0, params.token1));        
 
         {
             uint160 sqrtPriceX96 = pool.getCurrentSqrtPriceX96();
@@ -160,13 +160,13 @@ contract NonfungiblePositionManager is ERC721, IMintCallBack{
             }
         }
 
-        (amount0, amount1) = pool.mint(params.to, params.tickLower, params.tickUpper, liquidity, abi.encode(MintCallbackData({poolInfo: poolInfo, to : msg.sender})));
+        (amount0, amount1) = pool.mint(params.tickLower, params.tickUpper, liquidity, abi.encode(MintCallbackData({poolInfo: poolInfo, to : msg.sender})));
 
         require(amount0 >= params.amount0Min && amount1 >= params.amount1Min, 'Price slippage check');
 
         _mint(params.to, (tokenId = _nextId++));
 
-        (, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128, , ) = pool.positions(params.tickLower, params.tickUpper);
+        (, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128, , ) = pool.getPositions(params.tickLower, params.tickUpper);
 
         uint80 poolId = cachePoolInfo( address(pool), PoolInfo({token0: params.token0, token1: params.token1, fee: params.fee}));
 
@@ -191,7 +191,7 @@ contract NonfungiblePositionManager is ERC721, IMintCallBack{
 
 
     // function removeLiquidity(address token0, address token1, uint liquidity, address to) public returns (uint amount0, uint amount1){
-    //     (token0, token1) = Library.sortTokens(token0, token1);
+    //     (token0, token1) = PoolHelper.sortTokens(token0, token1);
     //     address pair = IFactory(factory).getTokensToPair(token0, token1);
     //     IERC20(pair).transferFrom(msg.sender, pair, liquidity);
     //     (amount0, amount1) = IPair(pair).burn(to);

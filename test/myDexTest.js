@@ -6,15 +6,26 @@ const {
 const { ethers } = require("hardhat");
 const { extendProvider } = require("hardhat/config");
 
-let LP, alice, bob, suin, usdt, factory, pair, router, library, flag, token0, token1, amount0, amount1;
+let LP, alice, bob, suin, usdt, factory, pool, poolHelper, flag, token0, token1, position, sqrtPriceMath, tick, tickMath, nonfungiblePositionManager;
 const decimals = ethers.parseEther("1");
+// 3409290029545542707626329 = $1851
+let sqrtPriceX96 = 10n << 96n;
 
 async function deployFixture() {
     const [owner, LP, alice, bob] = await ethers.getSigners();
 
     // 수정해야 할수도
-    const Library = await ethers.getContractFactory("Library");
-    const library = await Library.deploy();
+    const PoolHelper = await ethers.getContractFactory("PoolHelper");
+    const poolHelper = await PoolHelper.deploy();
+    const Tick = await ethers.getContractFactory("Tick");
+    const tick = await Tick.deploy();
+    const TickMath = await ethers.getContractFactory("TickMath");
+    const tickMath = await TickMath.deploy();
+    const SqrtPriceMath = await ethers.getContractFactory("SqrtPriceMath");
+    const sqrtPriceMath = await SqrtPriceMath.deploy();
+    const Position = await ethers.getContractFactory("Position");
+    const position = await Position.deploy();
+    
 
     const Token = await ethers.getContractFactory("Token");
     const suin = await Token.deploy("SUIN-COIN", "SUIN");
@@ -22,36 +33,49 @@ async function deployFixture() {
 
     const Factory = await ethers.getContractFactory("Factory", {
         libraries: {
-            Library: library.target,
+            TickMath: tickMath.target,
+            PoolHelper: poolHelper.target,
+            // SqrtPriceMath: sqrtPriceMath.target
         },
     });
-
     const factory = await Factory.deploy();
 
-    const Pair = await ethers.getContractFactory("Pair");
-    const tx = await factory.createPair(suin.target, usdt.target);
-    const receipt = await tx.wait();
-
-    const pair = await ethers.getContractAt("Pair", receipt.logs[0].args[2]);
-
-    const Router = await ethers.getContractFactory("Router", {
+    const Pool = await ethers.getContractFactory("Pool", {
         libraries: {
-            Library: library.target,
+            TickMath: tickMath.target,
+            // PoolHelper: poolHelper.target,
+            // SqrtPriceMath: sqrtPriceMath.target
         },
     });
-    const router = await Router.deploy(factory.target);
+    const tx = await factory.createPool(suin.target, usdt.target, sqrtPriceX96);
+    const receipt = await tx.wait();
+    const pool = await ethers.getContractAt("Pool", receipt.logs[0].args[2]);
+
+    const NonfungiblePositionManager = await ethers.getContractFactory("NonfungiblePositionManager", {
+        libraries: {
+            TickMath: tickMath.target,
+            PoolHelper: poolHelper.target,
+            SqrtPriceMath: sqrtPriceMath.target
+        },
+    });
+
+    const nonfungiblePositionManager = await NonfungiblePositionManager.deploy(factory.target);
 
 
     [token0, token1, flag] = suin < usdt ? [suin, usdt, false] : [usdt, suin, true];
-    return {owner, LP, alice, bob, suin, usdt, Token, factory, pair, router, flag, library};
+    return {owner, LP, alice, bob, suin, usdt, Token, factory, pool, nonfungiblePositionManager, flag, poolHelper, position, sqrtPriceMath, tick, tickMath};
 }
 
 before(async function () {
-    ({ owner, LP, alice, bob, suin, usdt, Token, factory, pair, router, flag, library } = await deployFixture());
+    ({ owner, LP, alice, bob, suin, usdt, Token, factory, pool, nonfungiblePositionManager, flag, poolHelper, position, sqrtPriceMath, tick, tickMath } = await deployFixture());
 });
 
 function scailing(amount) {
     return Number(amount) / Number(decimals);
+}
+
+function getSqrtPriceX96FromPrice(price) {
+    return BigInt(Math.sqrt(price) * 2 ** 96); 
 }
 
 describe("myDex", function() {
@@ -63,29 +87,29 @@ describe("myDex", function() {
             })
         })
         
+        
         describe("Factory", async function () {
             it("Should set the right owner", async function () {
                 expect(await factory.owner()).to.equal(owner.address);
             })
 
-            it("Should fail if pair already exist for tokens", async function() {
-                await expect(factory.createPair(suin.target, usdt.target)).to.be.reverted;
+            it("Should fail if pool already exist for tokens", async function() {
+                await expect(factory.createPool(suin.target, usdt.target, sqrtPriceX96)).to.be.reverted;
             })
 
-            it("Should fail if pair already exist for reversed tokens", async function() {
-                await expect(factory.createPair(usdt.target, suin.target)).to.be.reverted;
+            it("Should fail if pool already exist for reversed tokens", async function() {
+                await expect(factory.createPool(usdt.target, suin.target, sqrtPriceX96)).to.be.reverted;
             })
 
-            it("Should correctly map tokens to pair", async function () {
-                const mappingAddr = await factory.getTokensToPair(suin.target, usdt.target);
-                expect(mappingAddr).to.equal(pair.target);
+            it("Should correctly map tokens to pool", async function () {
+                const mappingAddr = await factory.getTokensToPool(suin.target, usdt.target);
+                expect(mappingAddr).to.equal(pool.target);
             })
         })
 
-        describe("Pair", async function () {
+        describe("Pool", async function () {
             it("Should set the right owner", async function () {
-                const Pair = await ethers.getContractAt("Pair", pair);
-                expect(await Pair.owner()).to.equal(await factory.getAddress());
+                expect(await pool.owner()).to.equal(await factory.getAddress());
             })
         })
     })
@@ -107,60 +131,82 @@ describe("myDex", function() {
         })
     })
 
-
     describe("Liquidity", async function () {
         it("Should correctly init add liquidity", async function() {
-            await suin.connect(LP).approve(router.target, ethers.parseEther("100"));
-            await usdt.connect(LP).approve(router.target, ethers.parseEther("10000"));
-            await router.connect(LP).addLiquidity(suin, usdt, ethers.parseEther("100"), ethers.parseEther("10000"), 0, 0, LP);
-            expect(await suin.balanceOf(pair.target)).to.equal(ethers.parseEther("100"));
-            expect(await usdt.balanceOf(pair.target)).to.equal(ethers.parseEther("10000"));
-            expect(await pair.balanceOf(LP)).to.equal(ethers.parseEther("1000"));
+            await suin.connect(LP).approve(nonfungiblePositionManager.target, ethers.parseEther("100"));
+            await usdt.connect(LP).approve(nonfungiblePositionManager.target, ethers.parseEther("10000"));
+            
+            let sqrtPriceAX96 = getSqrtPriceX96FromPrice(97.5);
+            let sqrtPriceBX96 = getSqrtPriceX96FromPrice(102.123)
+            let tickLower = await tickMath.getTickAtSqrtRatio(sqrtPriceAX96);
+            let tickUpper = await tickMath.getTickAtSqrtRatio(sqrtPriceBX96);
+
+            console.log(await sqrtPriceMath.getLiquidityForAmount0(sqrtPriceX96, sqrtPriceBX96, 1));
+            // console.log( scailing(await sqrtPriceMath.getLiquidityForAmount0(sqrtPriceX96, sqrtPriceBX96, ethers.parseEther("11"))))
+            // console.log( scailing(await sqrtPriceMath.getLiquidityForAmount0(sqrtPriceX96, sqrtPriceBX96, ethers.parseEther("12"))))
+            
+            // const params = {
+            //     token0: suin,
+            //     token1: usdt,
+            //     tickLower: tickLower,
+            //     tickUpper: tickUpper,
+            //     amount0Desired: await sqrtPriceMath.getLiquidityForAmount0(sqrtPriceX96, sqrtPriceBX96, ethers.parseEther("10")),
+            //     amount1Desired: await sqrtPriceMath.getLiquidityForAmount0(sqrtPriceAX96, sqrtPriceX96, ethers.parseEther("1")),
+            //     amount0Min: web3.utils.toWei("11", "ether"),
+            //     amount1Min: web3.utils.toWei("1.2", "ether"),
+            //     to: LP,
+            // };
+
+            // await nonfungiblePositionManager.connect(LP).addLiquidity(suin, usdt, ethers.parseEther("100"), ethers.parseEther("10000"), 0, 0, LP);
+            // expect(await suin.balanceOf(pool.target)).to.equal(ethers.parseEther("100"));
+            // expect(await usdt.balanceOf(pool.target)).to.equal(ethers.parseEther("10000"));
+            // expect(await pool.balanceOf(LP)).to.equal(ethers.parseEther("1000"));
         })
 
-        it("Should correctly remove liquidity", async function() {
-            await pair.connect(LP).approve(router.target, ethers.parseEther("500"));
-            await router.connect(LP).removeLiquidity(suin, usdt, ethers.parseEther("500"), LP);
-            expect(await suin.balanceOf(pair.target)).to.equal(ethers.parseEther("50"));
-            expect(await usdt.balanceOf(pair.target)).to.equal(ethers.parseEther("5000"));
-            expect(await pair.balanceOf(LP)).to.equal(ethers.parseEther("500"));
+        // it("Should correctly remove liquidity", async function() {
+        //     await pool.connect(LP).approve(router.target, ethers.parseEther("500"));
+        //     await router.connect(LP).removeLiquidity(suin, usdt, ethers.parseEther("500"), LP);
+        //     expect(await suin.balanceOf(pool.target)).to.equal(ethers.parseEther("50"));
+        //     expect(await usdt.balanceOf(pool.target)).to.equal(ethers.parseEther("5000"));
+        //     expect(await pool.balanceOf(LP)).to.equal(ethers.parseEther("500"));
 
-            // 원상 복구
-            await suin.connect(LP).approve(router.target, ethers.parseEther("50"));
-            await usdt.connect(LP).approve(router.target, ethers.parseEther("5000"));
-            await router.connect(LP).addLiquidity(suin, usdt, ethers.parseEther("50"), ethers.parseEther("5000"), 0, 0, LP);
-            expect(await suin.balanceOf(pair.target)).to.equal(ethers.parseEther("100"));
-            expect(await usdt.balanceOf(pair.target)).to.equal(ethers.parseEther("10000"));
-            expect(await pair.balanceOf(LP)).to.equal(ethers.parseEther("1000"));
-        })
+        //     // 원상 복구
+        //     await suin.connect(LP).approve(router.target, ethers.parseEther("50"));
+        //     await usdt.connect(LP).approve(router.target, ethers.parseEther("5000"));
+        //     await router.connect(LP).addLiquidity(suin, usdt, ethers.parseEther("50"), ethers.parseEther("5000"), 0, 0, LP);
+        //     expect(await suin.balanceOf(pool.target)).to.equal(ethers.parseEther("100"));
+        //     expect(await usdt.balanceOf(pool.target)).to.equal(ethers.parseEther("10000"));
+        //     expect(await pool.balanceOf(LP)).to.equal(ethers.parseEther("1000"));
+        // })
     })
+/*
 
     describe("Pricing", async function () {
         it("Should correctly calculate 'quote price'", async function() {
             const rx = ethers.parseEther("10000.0");
             const ry = ethers.parseEther("100.0");
             const x = ethers.parseEther("10.0");
-            const amount =await library.quote(x, rx, ry);  
+            const amount =await poolHelper.quote(x, rx, ry);  
             const res = x * ry / rx;
             await expect(ethers.formatEther(amount)).to.equal(ethers.formatEther(res));
         })
     
 
         it("Should correctly calculate 'output price'", async function() {
-            let [x, y] = await pair.getReserves();
+            let [x, y] = await pool.getReserves();
             const dx = ethers.parseEther("2");
             [x, y] = flag ? [y, x] : [x, y];
-            const amount = await library.getOutputAmount(factory, suin, usdt, dx); 
+            const amount = await poolHelper.getOutputAmount(factory, suin, usdt, dx); 
             const dxWithFee = dx * 997n;
             const dy = y * dxWithFee / (x * 1000n + dxWithFee);
             await expect(ethers.formatEther(amount)).to.equal(ethers.formatEther(dy));
         })
 
         it("Should correctly calculate 'input price'", async function() {
-            let [x, y] = await pair.getReserves();
+            let [x, y] = await pool.getReserves();
             const dy = ethers.parseEther("10.0");
             [x, y] = flag ? [y, x] : [x, y];
-            const amount = await library.getInputAmount(factory, suin, usdt, dy);
+            const amount = await poolHelper.getInputAmount(factory, suin, usdt, dy);
             const dx = x * dy / (y - dy) *  1000n / 997n + 1n;
             await expect(ethers.formatEther(amount)).to.equal(ethers.formatEther(dx));
         })
@@ -172,7 +218,7 @@ describe("myDex", function() {
         // * 추가 정렬 순서에 따른 swap test case 구현 
             // 100, 10000
             it("Should correctly swap exact token-to-token by asc", async function() {
-                let [reserve0, reserve1] = await pair.getReserves();
+                let [reserve0, reserve1] = await pool.getReserves();
                 let amountIn = "0.2";
                 if(flag) [reserve0, reserve1] = [reserve1, reserve0];        
                 let amountOut = ethers.parseEther(amountIn) * 997n * reserve1 / (reserve0 * 1000n + ethers.parseEther(amountIn) * 997n);
@@ -184,7 +230,7 @@ describe("myDex", function() {
             }) 
     
             // it("Should correctly swap exact token-to-token by desc", async function() {
-            //     let [reserve0, reserve1] = await pair.getReserves();
+            //     let [reserve0, reserve1] = await pool.getReserves();
             //     let amountIn = "0.2";
             //     let amountOut = ethers.parseEther(amountIn) * 997n * reserve1 / (reserve0 * 1000n + ethers.parseEther(amountIn) * 997n);
             //     let beforeBalance = await suin.balanceOf(alice);
@@ -197,7 +243,7 @@ describe("myDex", function() {
     
             
             // it("Should correctly swap token-to-exact token by asc", async function() {
-            //     let [reserve0, reserve1] = await pair.getReserves();
+            //     let [reserve0, reserve1] = await pool.getReserves();
             //     let amountOut = "0.2";
             //     let beforeBalance = await usdt.balanceOf(bob);
             //     if(flag) [reserve0, reserve1] = [reserve1, reserve0]; 
@@ -211,7 +257,7 @@ describe("myDex", function() {
             // })
     
             it("Should correctly swap token-to-exact token by desc", async function() {
-                let [reserve0, reserve1] = await pair.getReserves();
+                let [reserve0, reserve1] = await pool.getReserves();
                 let amountOut = "0.2";
                 let beforeBalance = await usdt.balanceOf(bob);
                 if(flag) [reserve0, reserve1] = [reserve1, reserve0]; 
@@ -223,4 +269,6 @@ describe("myDex", function() {
                 expect(await usdt.balanceOf(bob)).to.equal(beforeBalance - amountIn);
             })
     })
+
+    */
 });

@@ -5,7 +5,7 @@ import "../interfaces/IFactory.sol";
 import "../interfaces/IPool.sol";
 import "hardhat/console.sol";
 
-library Library {
+library PoolHelper {
 
     function quote(uint amount0, uint reserve0, uint reserve1) pure public returns (uint amount1) {
         amount1 = amount0 * reserve1 / reserve0;

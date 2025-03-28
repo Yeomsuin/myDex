@@ -7,7 +7,7 @@ import "hardhat/console.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "./Pool.sol";
 import "./interfaces/IFactory.sol";
-import "./lib/utils.sol";
+import "./lib/PoolHelper.sol";
 
 contract Factory is IFactory{
     
@@ -30,13 +30,13 @@ contract Factory is IFactory{
     * @param tokenB ETH/Token 풀의 TokenB의 주소
     * @return 만들어진 ETH/Token Pair의 주소를 반환
     */
-    function createPool(address tokenA, address tokenB) public returns (address){
+    function createPool(address tokenA, address tokenB, uint160 sqrtPriceX96) public returns (address){
 
-        (address token0, address token1) = Library.sortTokens(tokenA, tokenB);
+        (address token0, address token1) = PoolHelper.sortTokens(tokenA, tokenB);
 
         require(tokensToPool[token0][token1] == address(0));
 
-        Pool p = new Pool(token0, token1);
+        Pool p = new Pool(token0, token1, sqrtPriceX96);
         address _pool = address(p);
         tokensToPool[token0][token1] = _pool;
         tokensToPool[token1][token0] = _pool;
