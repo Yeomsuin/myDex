@@ -159,7 +159,6 @@ contract NonfungiblePositionManager is ERC721, IMintCallBack{
                 liquidity = SqrtPriceMath.getLiquidityForAmount1(sqrtRatioAX96, sqrtRatioBX96, params.amount1Desired);
             }
         }
-
         (amount0, amount1) = pool.mint(params.tickLower, params.tickUpper, liquidity, abi.encode(MintCallbackData({poolInfo: poolInfo, to : msg.sender})));
 
         require(amount0 >= params.amount0Min && amount1 >= params.amount1Min, 'Price slippage check');

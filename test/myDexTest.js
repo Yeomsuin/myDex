@@ -8,8 +8,16 @@ const { extendProvider } = require("hardhat/config");
 
 let LP, alice, bob, suin, usdt, factory, pool, poolHelper, flag, token0, token1, position, sqrtPriceMath, tick, tickMath, nonfungiblePositionManager;
 const decimals = ethers.parseEther("1");
-// 3409290029545542707626329 = $1851
-let sqrtPriceX96 = 10n << 96n;
+const Q96 = 1n << 96n;
+let sqrtPriceX96, sqrtPrice, tokenId = 1;
+
+function scailing(amount) {
+    return Number(amount) / Number(decimals);
+}
+
+function getSqrtPriceX96FromSqrtPrice(price) {
+    return BigInt(price * Number(Q96)); 
+}
 
 async function deployFixture() {
     const [owner, LP, alice, bob] = await ethers.getSigners();
@@ -35,7 +43,7 @@ async function deployFixture() {
         libraries: {
             TickMath: tickMath.target,
             PoolHelper: poolHelper.target,
-            // SqrtPriceMath: sqrtPriceMath.target
+            SqrtPriceMath: sqrtPriceMath.target
         },
     });
     const factory = await Factory.deploy();
@@ -44,9 +52,12 @@ async function deployFixture() {
         libraries: {
             TickMath: tickMath.target,
             // PoolHelper: poolHelper.target,
-            // SqrtPriceMath: sqrtPriceMath.target
+            SqrtPriceMath: sqrtPriceMath.target
         },
     });
+    let sqrtPrice = Math.sqrt(1887.66);
+    let sqrtPriceX96 = getSqrtPriceX96FromSqrtPrice(sqrtPrice);
+
     const tx = await factory.createPool(suin.target, usdt.target, sqrtPriceX96);
     const receipt = await tx.wait();
     const pool = await ethers.getContractAt("Pool", receipt.logs[0].args[2]);
@@ -63,20 +74,13 @@ async function deployFixture() {
 
 
     [token0, token1, flag] = suin < usdt ? [suin, usdt, false] : [usdt, suin, true];
-    return {owner, LP, alice, bob, suin, usdt, Token, factory, pool, nonfungiblePositionManager, flag, poolHelper, position, sqrtPriceMath, tick, tickMath};
+    return {sqrtPrice, sqrtPriceX96, owner, LP, alice, bob, suin, usdt, Token, factory, pool, nonfungiblePositionManager, flag, poolHelper, position, sqrtPriceMath, tick, tickMath};
 }
 
 before(async function () {
-    ({ owner, LP, alice, bob, suin, usdt, Token, factory, pool, nonfungiblePositionManager, flag, poolHelper, position, sqrtPriceMath, tick, tickMath } = await deployFixture());
+    ({ sqrtPrice, sqrtPriceX96, owner, LP, alice, bob, suin, usdt, Token, factory, pool, nonfungiblePositionManager, flag, poolHelper, position, sqrtPriceMath, tick, tickMath } = await deployFixture());
 });
 
-function scailing(amount) {
-    return Number(amount) / Number(decimals);
-}
-
-function getSqrtPriceX96FromPrice(price) {
-    return BigInt(Math.sqrt(price) * 2 ** 96); 
-}
 
 describe("myDex", function() {
     describe("Deployment", async function () {
@@ -132,35 +136,65 @@ describe("myDex", function() {
     })
 
     describe("Liquidity", async function () {
-        it("Should correctly init add liquidity", async function() {
-            await suin.connect(LP).approve(nonfungiblePositionManager.target, ethers.parseEther("100"));
-            await usdt.connect(LP).approve(nonfungiblePositionManager.target, ethers.parseEther("10000"));
-            
-            let sqrtPriceAX96 = getSqrtPriceX96FromPrice(97.5);
-            let sqrtPriceBX96 = getSqrtPriceX96FromPrice(102.123)
-            let tickLower = await tickMath.getTickAtSqrtRatio(sqrtPriceAX96);
-            let tickUpper = await tickMath.getTickAtSqrtRatio(sqrtPriceBX96);
 
-            console.log(await sqrtPriceMath.getLiquidityForAmount0(sqrtPriceX96, sqrtPriceBX96, 1));
-            // console.log( scailing(await sqrtPriceMath.getLiquidityForAmount0(sqrtPriceX96, sqrtPriceBX96, ethers.parseEther("11"))))
-            // console.log( scailing(await sqrtPriceMath.getLiquidityForAmount0(sqrtPriceX96, sqrtPriceBX96, ethers.parseEther("12"))))
-            
-            // const params = {
-            //     token0: suin,
-            //     token1: usdt,
-            //     tickLower: tickLower,
-            //     tickUpper: tickUpper,
-            //     amount0Desired: await sqrtPriceMath.getLiquidityForAmount0(sqrtPriceX96, sqrtPriceBX96, ethers.parseEther("10")),
-            //     amount1Desired: await sqrtPriceMath.getLiquidityForAmount0(sqrtPriceAX96, sqrtPriceX96, ethers.parseEther("1")),
-            //     amount0Min: web3.utils.toWei("11", "ether"),
-            //     amount1Min: web3.utils.toWei("1.2", "ether"),
-            //     to: LP,
-            // };
+        async function addLiquidity(tickLower, tickUpper, amount0, amount1) {
+            let sqrtPriceAX96 = await tickMath.getSqrtRatioAtTick(tickLower);
+            let sqrtPriceBX96 = await tickMath.getSqrtRatioAtTick(tickUpper);
+            let sqrtPriceA = Number(sqrtPriceAX96) / Number(Q96);
+            let sqrtPriceB = Number(sqrtPriceBX96) / Number(Q96);
+            let x = (sqrtPriceB - sqrtPrice) / sqrtPriceB / sqrtPrice;
+            let y = sqrtPrice - sqrtPriceA;
+            let liquidity;
 
-            // await nonfungiblePositionManager.connect(LP).addLiquidity(suin, usdt, ethers.parseEther("100"), ethers.parseEther("10000"), 0, 0, LP);
-            // expect(await suin.balanceOf(pool.target)).to.equal(ethers.parseEther("100"));
-            // expect(await usdt.balanceOf(pool.target)).to.equal(ethers.parseEther("10000"));
-            // expect(await pool.balanceOf(LP)).to.equal(ethers.parseEther("1000"));
+            if(sqrtPriceX96 < sqrtPriceAX96) 
+                liquidity = await sqrtPriceMath.getLiquidityForAmount0(sqrtPriceAX96, sqrtPriceBX96 ,amount0);
+            else if(sqrtPriceBX96 < sqrtPriceX96)
+                liquidity = await sqrtPriceMath.getLiquidityForAmount1(sqrtPriceAX96, sqrtPriceBX96 ,amount1);
+            else{
+                amount1 = ethers.parseEther( (y / x).toString());
+
+                let l0 = await sqrtPriceMath.getLiquidityForAmount0(sqrtPriceX96, sqrtPriceBX96 ,amount0);
+                let l1 = await sqrtPriceMath.getLiquidityForAmount1(sqrtPriceAX96, sqrtPriceX96 ,amount1);
+    
+                liquidity = l0 < l1 ? l0 : l1;
+            }
+
+            await suin.connect(LP).approve(nonfungiblePositionManager.target, amount0);
+            await usdt.connect(LP).approve(nonfungiblePositionManager.target, amount1);
+            
+            let params = {
+                token0: suin,
+                token1: usdt,
+                tickLower: tickLower,
+                tickUpper: tickUpper,
+                amount0Desired: amount0,
+                amount1Desired: amount1,
+                amount0Min: ethers.parseEther("0"),
+                amount1Min: ethers.parseEther("0"),
+                fee: 3,
+                to: LP,
+            };
+            
+            await nonfungiblePositionManager.connect(LP).addLiquidity(params);
+            // tokenId
+            let position = await nonfungiblePositionManager.getPosition(tokenId++);
+            // console.log(position)
+            return [position.liquidity, liquidity];
+        }
+
+        it("Should correctly add liquidity when lower <= price <= upper.", async function() {
+            let ret = await addLiquidity(73894n, 78004n, ethers.parseEther("1"), 0);
+            expect(ret[0]).to.equal(ret[1]);
+        })
+
+        it("Should correctly add liquidity when price < lower", async function() {
+            let ret = await addLiquidity(76964n, 77164n, ethers.parseEther("1"), 0);
+            expect(ret[0]).to.equal(ret[1]);
+        })
+
+        it("Should correctly add liquidity when upper < price ", async function() {
+            let ret = await addLiquidity(74245n, 74568n, 0, ethers.parseEther("1500"));
+            expect(ret[0]).to.equal(ret[1]);
         })
 
         // it("Should correctly remove liquidity", async function() {

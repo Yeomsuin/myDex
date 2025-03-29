@@ -77,8 +77,7 @@ contract Pool is IPool {
                 liquidityDelta,
                 _feeGrowthGlobal0X128,
                 _feeGrowthGlobal1X128,
-                false,
-                1e9
+                false
             );
 
         bool flippedUpper = ticks.update(
@@ -87,8 +86,7 @@ contract Pool is IPool {
                 liquidityDelta,
                 _feeGrowthGlobal0X128,
                 _feeGrowthGlobal1X128,
-                true,
-                1e9
+                true
             );
 
         // * tickBitmap 구현 시 추가
@@ -120,7 +118,7 @@ contract Pool is IPool {
         position = _updatePosition(tickLower, tickUpper, liquidityDelta, _slot0.tick);
 
         uint128 liquidityBefore = liquidity;
-        
+         
         if(liquidityDelta != 0){
             if(_slot0.tick < tickLower){
                 amount0 = SqrtPriceMath.getAmount0Delta(
@@ -155,12 +153,9 @@ contract Pool is IPool {
     function mint(int24 tickLower, int24 tickUpper, uint128 amount, bytes calldata data) external override returns (uint256 amount0, uint256 amount1){
 
         // *수정 modify Position -> Liquidity update
-        
          (, int256 amount0Int, int256 amount1Int) = _modifyPosition(tickLower, tickUpper, int128(amount));
-        
         amount0 = uint256(amount0Int);
         amount1 = uint256(amount1Int);
-
         uint256 balance0Before;
         uint256 balance1Before;
 
@@ -171,7 +166,6 @@ contract Pool is IPool {
 
         if (amount0 > 0) require(balance0Before + amount0 <= IERC20(token0).balanceOf(address(this)), 'M0');
         if (amount1 > 0) require(balance1Before + amount1 <= IERC20(token1).balanceOf(address(this)), 'M1');
-
         // event 발생
     }
 

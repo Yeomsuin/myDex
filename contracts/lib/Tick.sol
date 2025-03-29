@@ -41,8 +41,7 @@ library Tick {
         int128 liquidityDelta,
         uint256 feeGrowthGlobal0X128,
         uint256 feeGrowthGlobal1X128,
-        bool upper,
-        uint128 maxLiquidity
+        bool upper
     ) internal returns (bool flipped) {
         Tick.Info storage info = self[tick];
 
@@ -51,8 +50,6 @@ library Tick {
         // update 후 tick의 Liquidity
         if(liquidityDelta < 0 ) require( liquidityGrossBefore >= uint128(-liquidityDelta), "Liquidity should be not negative");
         uint128 liquidityGrossAfter = liquidityDelta > 0 ? liquidityGrossBefore +  uint128(liquidityDelta) : liquidityGrossBefore - uint128(-liquidityDelta);
-
-        require(liquidityGrossAfter <= maxLiquidity, 'LO');
 
 
         // 유동성이 완전히 사라지거나, 새로 생겼을 때 True
