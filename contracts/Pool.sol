@@ -111,14 +111,14 @@ contract Pool is IPool {
         }
     }
 
-    function _modifyPosition(int24 tickLower, int24 tickUpper, int128 liquidityDelta) private returns(Position.Info memory position, int256 amount0, int256 amount1){
+    function _modifyPosition(int24 tickLower, int24 tickUpper, int128 liquidityDelta) private returns(Position.Info storage position, int256 amount0, int256 amount1){
         require(tickLower < tickUpper, 'TLU');
         Slot0 memory _slot0 = slot0; 
 
         position = _updatePosition(tickLower, tickUpper, liquidityDelta, _slot0.tick);
 
         uint128 liquidityBefore = liquidity;
-         
+
         if(liquidityDelta != 0){
             if(_slot0.tick < tickLower){
                 amount0 = SqrtPriceMath.getAmount0Delta(
@@ -168,6 +168,39 @@ contract Pool is IPool {
         if (amount1 > 0) require(balance1Before + amount1 <= IERC20(token1).balanceOf(address(this)), 'M1');
         // event 발생
     }
+
+    function burn(int24 tickLower, int24 tickUpper, uint128 amount) external override returns (uint256 amount0, uint256 amount1){
+        (Position.Info storage position, int256 amount0Int, int256 amount1Int) = _modifyPosition(tickLower, tickUpper, -int128(amount));
+        amount0 = uint256(-amount0Int);
+        amount1 = uint256(-amount1Int);
+
+        if(amount0 > 0 || amount1 > 0){
+            position.tokensOwed0 += uint128(amount0);
+            position.tokensOwed1 += uint128(amount1);
+        }
+    }
+
+    function collect(address to, int24 tickLower, int24 tickUpper, uint128 amount0Requested,uint128 amount1Requested) external override returns (uint128 amount0, uint128 amount1){
+        Position.Info storage position = positions[tickLower][tickUpper];
+
+        // max
+        amount0 = amount0Requested > position.tokensOwed0 ? amount0Requested : position.tokensOwed0;
+        amount1 = amount1Requested > position.tokensOwed1 ? amount1Requested : position.tokensOwed1;
+        
+        if(amount0 > 0){
+            position.tokensOwed0 -= amount0;
+            IERC20(token0).transfer(to, amount0);
+        }
+
+        if(amount1 > 0){
+            position.tokensOwed1 -= amount1;
+            IERC20(token1).transfer(to, amount1);
+        }
+
+        // event 발생!!        
+    }
+
+
 
 
     function swap(uint amount0Out, uint amount1Out, address to) public override {

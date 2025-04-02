@@ -12,7 +12,27 @@ import "./lib/TickMath.sol";
 import "./lib/SqrtPriceMath.sol";
 
 contract NonfungiblePositionManager is ERC721, IMintCallBack{
+    event AddLiquidity(
+        uint256 tokenId,
+        uint256 liquidity,
+        uint256 amount0,
+        uint256 amount1
+    );
     
+    event RemoveLiquidity(
+        uint256 tokenId,
+        uint256 liquidity,
+        uint256 amount0,
+        uint256 amount1
+    );
+
+    event Collect(
+        uint256 tokenId,
+        address to,
+        uint256 indexed amount0Collect,
+        uint256 indexed amount1Collect
+    );
+
     struct Positions {
         // the nonce for permits
         uint96 nonce;
@@ -55,6 +75,26 @@ contract NonfungiblePositionManager is ERC721, IMintCallBack{
         uint amount1Min;
         uint24 fee;
         address to;
+    }
+
+    struct RemoveLiquidityParams {
+        uint128 liquidity;
+        uint176 tokenId;
+        uint80 poolId;
+        uint amount0Min;
+        uint amount1Min;
+    }
+
+
+    // collect의 max는 왜 필요함?
+    struct CollectParmas {
+        uint176 tokenId;
+        address to;
+    }
+
+    modifier isAuthorizedForToken(uint256 tokenId) {
+        require(msg.sender == ownerOf(tokenId), 'Not approved');
+        _;
     }
 
     // poolAddress -> poolId
@@ -133,7 +173,11 @@ contract NonfungiblePositionManager is ERC721, IMintCallBack{
 
 
     // 남은 금액은 어차피 approve만 해놔서 잔돈 안 돌려줘도 됨.
-    function addLiquidity(AddLiquidityParams calldata params) public returns (uint256 amount0, uint256 amount1, uint128 liquidity, uint256 tokenId){
+    function addLiquidity(AddLiquidityParams calldata params) 
+        public 
+        returns
+        (uint256 amount0, uint256 amount1, uint128 liquidity, uint256 tokenId)
+    {
         
         PoolInfo memory poolInfo = PoolInfo({token0: params.token0, token1: params.token1, fee: params.fee});
 
@@ -183,22 +227,73 @@ contract NonfungiblePositionManager is ERC721, IMintCallBack{
         });
 
         // event 발생
+        emit AddLiquidity(tokenId, liquidity, amount0, amount1);
     }
 
 
     // 기존의 NFT에 Liquidity 추가하는 함수 = increaseLiquidity() 구현해야함.........
 
+    // 유동성을 제거하지만 NFT의 tokenOwed는 남아 있음
+    function removeLiquidity(RemoveLiquidityParams calldata params) 
+        external
+        isAuthorizedForToken(params.tokenId) 
+        returns (uint amount0, uint amount1)
+    {
+        Positions storage position = _positions[params.tokenId]; 
+        uint128 positionLiquidity = position.liquidity;
+        require(positionLiquidity >= params.liquidity);
+        
 
-    // function removeLiquidity(address token0, address token1, uint liquidity, address to) public returns (uint amount0, uint amount1){
-    //     (token0, token1) = PoolHelper.sortTokens(token0, token1);
-    //     address pair = IFactory(factory).getTokensToPair(token0, token1);
-    //     IERC20(pair).transferFrom(msg.sender, pair, liquidity);
-    //     (amount0, amount1) = IPair(pair).burn(to);
-    // }
+        PoolInfo memory poolInfo = _poolIdToPoolInfo[params.poolId];
+        IPool pool = IPool(PoolHelper.getPool(factory, poolInfo.token0, poolInfo.token1));        
+
+        (amount0, amount1) = pool.burn(position.tickLower, position.tickUpper, params.liquidity);
+        require(amount0 >= params.amount0Min && amount1 >= params.amount1Min, 'Price slippage check');
+        (, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128, , ) = pool.getPositions(position.tickLower, position.tickUpper);
+
+        position.tokensOwed0 += uint128(amount0) + uint128((feeGrowthInside0LastX128 - position.feeGrowthInside0LastX128) * positionLiquidity /  0x100000000000000000000000000000000);
+        position.tokensOwed1 += uint128(amount1) + uint128((feeGrowthInside1LastX128 - position.feeGrowthInside1LastX128) * positionLiquidity / 0x100000000000000000000000000000000);
+
+        position.feeGrowthInside0LastX128 = feeGrowthInside0LastX128;
+        position.feeGrowthInside1LastX128 =feeGrowthInside1LastX128;
+
+        position.liquidity = positionLiquidity - params.liquidity;
+
+        emit RemoveLiquidity(params.tokenId, params.liquidity, amount0, amount1);
+    }
 
 
+    function collect(CollectParmas calldata params) 
+        external 
+        payable 
+        isAuthorizedForToken(params.tokenId) 
+        returns(uint256 amount0, uint256 amount1)
+    {
+        Positions storage position = _positions[params.tokenId];
+        uint128 positionLiquidity = position.liquidity;
 
+        PoolInfo memory poolInfo = _poolIdToPoolInfo[position.poolId];
+        IPool pool = IPool(PoolHelper.getPool(factory, poolInfo.token0, poolInfo.token1));    
 
-  
+        (uint128 tokensOwed0, uint128 tokensOwed1) = (position.tokensOwed0, position.tokensOwed1);
 
+        if(position.liquidity > 0){
+            // feeInside update
+            pool.burn(position.tickLower, position.tickUpper, 0);
+            (, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128, , ) = pool.getPositions(position.tickLower, position.tickUpper);
+            tokensOwed0 += uint128(amount0) + uint128((feeGrowthInside0LastX128 - position.feeGrowthInside0LastX128) * positionLiquidity /  0x100000000000000000000000000000000);
+            tokensOwed1 += uint128(amount1) + uint128((feeGrowthInside1LastX128 - position.feeGrowthInside1LastX128) * positionLiquidity / 0x100000000000000000000000000000000);
+        
+            position.feeGrowthInside0LastX128 = feeGrowthInside0LastX128;
+            position.feeGrowthInside1LastX128 = feeGrowthInside1LastX128;
+        }
+
+        (amount0, amount1) = pool.collect(params.to, position.tickLower, position.tickUpper, tokensOwed0, tokensOwed1);
+
+        // *수정 amountMax 추가 시 변경
+        position.tokensOwed0 = 0;
+        position.tokensOwed1 = 0;
+
+        emit Collect(params.tokenId, params.to, tokensOwed0, tokensOwed1);
+    }
 }

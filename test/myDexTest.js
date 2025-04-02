@@ -54,8 +54,8 @@ async function deployFixture() {
             // PoolHelper: poolHelper.target,
             SqrtPriceMath: sqrtPriceMath.target
         },
-    });
-    let sqrtPrice = Math.sqrt(1887.66);
+    }); 
+    let sqrtPrice = Math.sqrt(1845.42);
     let sqrtPriceX96 = getSqrtPriceX96FromSqrtPrice(sqrtPrice);
 
     const tx = await factory.createPool(suin.target, usdt.target, sqrtPriceX96);
@@ -137,81 +137,132 @@ describe("myDex", function() {
 
     describe("Liquidity", async function () {
 
-        async function addLiquidity(tickLower, tickUpper, amount0, amount1) {
-            let sqrtPriceAX96 = await tickMath.getSqrtRatioAtTick(tickLower);
-            let sqrtPriceBX96 = await tickMath.getSqrtRatioAtTick(tickUpper);
-            let sqrtPriceA = Number(sqrtPriceAX96) / Number(Q96);
-            let sqrtPriceB = Number(sqrtPriceBX96) / Number(Q96);
-            let x = (sqrtPriceB - sqrtPrice) / sqrtPriceB / sqrtPrice;
-            let y = sqrtPrice - sqrtPriceA;
-            let liquidity;
+        describe("Add Liquidity", async function () {
+            async function addLiquidity(tickLower, tickUpper, amount0, amount1) {
+                let sqrtPriceAX96 = await tickMath.getSqrtRatioAtTick(tickLower);
+                let sqrtPriceBX96 = await tickMath.getSqrtRatioAtTick(tickUpper);
+                // let sqrtPriceA = Number(sqrtPriceAX96) / Number(Q96);
+                // let sqrtPriceB = Number(sqrtPriceBX96) / Number(Q96);
+                let sqrtPriceA = Math.sqrt(1415.2195);
+                let sqrtPriceB = Math.sqrt(2235.0459);
+                let xx = Number(sqrtPriceBX96) * Number(sqrtPriceX96) / Number(sqrtPriceBX96 - sqrtPriceX96);
+                let yy = Number(sqrtPriceX96 - sqrtPriceAX96) ;
+                let x = (sqrtPriceB - sqrtPrice) / sqrtPriceB / sqrtPrice;
+                let y = sqrtPrice - sqrtPriceA;
+                let liquidity;
+                
+                let aa = (sqrtPrice - sqrtPriceA) * sqrtPriceB *  sqrtPrice / (sqrtPriceB - sqrtPrice);
 
-            if(sqrtPriceX96 < sqrtPriceAX96) 
-                liquidity = await sqrtPriceMath.getLiquidityForAmount0(sqrtPriceAX96, sqrtPriceBX96 ,amount0);
-            else if(sqrtPriceBX96 < sqrtPriceX96)
-                liquidity = await sqrtPriceMath.getLiquidityForAmount1(sqrtPriceAX96, sqrtPriceBX96 ,amount1);
-            else{
-                amount1 = ethers.parseEther( (y / x).toString());
+                if(sqrtPriceX96 < sqrtPriceAX96) 
+                    liquidity = await sqrtPriceMath.getLiquidityForAmount0(sqrtPriceAX96, sqrtPriceBX96 ,amount0);
+                else if(sqrtPriceBX96 < sqrtPriceX96)
+                    liquidity = await sqrtPriceMath.getLiquidityForAmount1(sqrtPriceAX96, sqrtPriceBX96 ,amount1);
+                else{
+                    
+                    if(amount0 != 0)
+                        liquidity = await sqrtPriceMath.getLiquidityForAmount0(sqrtPriceX96, sqrtPriceBX96 ,amount0);
+                    else
+                        liquidity = await sqrtPriceMath.getLiquidityForAmount1(sqrtPriceAX96, sqrtPriceX96 ,amount1);
 
-                let l0 = await sqrtPriceMath.getLiquidityForAmount0(sqrtPriceX96, sqrtPriceBX96 ,amount0);
-                let l1 = await sqrtPriceMath.getLiquidityForAmount1(sqrtPriceAX96, sqrtPriceX96 ,amount1);
-    
-                liquidity = l0 < l1 ? l0 : l1;
+                    amount1 = await sqrtPriceMath.getAmount1Delta(sqrtPriceAX96, sqrtPriceBX96, liquidity);
+                    // console.log(await sqrtPriceMath.getAmount0Delta(sqrtPriceX96, sqrtPriceBX96, liquidity));
+                    // console.log(await sqrtPriceMath.getAmount1Delta(sqrtPriceAX96, sqrtPriceX96, liquidity));
+                }
+
+                await suin.connect(LP).approve(nonfungiblePositionManager.target, amount0);
+                await usdt.connect(LP).approve(nonfungiblePositionManager.target, amount1);
+
+                let params = {
+                    token0: suin,
+                    token1: usdt,
+                    tickLower: tickLower,
+                    tickUpper: tickUpper,
+                    amount0Desired: amount0,
+                    amount1Desired: amount1,
+                    amount0Min: ethers.parseEther("0"),
+                    amount1Min: ethers.parseEther("0"),
+                    fee: 3,
+                    to: LP,
+                };
+                
+
+                let tx = await nonfungiblePositionManager.connect(LP).addLiquidity(params);
+                let rec = await tx.wait();
+                // tokenId
+                let position = await nonfungiblePositionManager.getPosition(tokenId++);
+                return [position.liquidity, liquidity, rec];
             }
 
-            await suin.connect(LP).approve(nonfungiblePositionManager.target, amount0);
-            await usdt.connect(LP).approve(nonfungiblePositionManager.target, amount1);
+            it("Should correctly add liquidity when lower <= price <= upper.", async function() {
+                let ret = await addLiquidity(72554n, 77124n, ethers.parseEther("1"), 0);
+                expect(ret[0]).to.equal(ret[1]);
+            })
+
+            it("Should correctly add liquidity when price < lower", async function() {
+                let ret = await addLiquidity(76964n, 77164n, ethers.parseEther("1"), 0);
+                expect(ret[0]).to.equal(ret[1]);
+            })
+
+            it("Should correctly add liquidity when upper < price ", async function() {
+                let ret = await addLiquidity(74245n, 74568n, 0, ethers.parseEther("1500"));
+                expect(ret[0]).to.equal(ret[1]);
+            })
+        })
+
+        describe("Remove Liquidity & Collect", async function() {
             
-            let params = {
-                token0: suin,
-                token1: usdt,
-                tickLower: tickLower,
-                tickUpper: tickUpper,
-                amount0Desired: amount0,
-                amount1Desired: amount1,
-                amount0Min: ethers.parseEther("0"),
-                amount1Min: ethers.parseEther("0"),
-                fee: 3,
-                to: LP,
-            };
-            
-            await nonfungiblePositionManager.connect(LP).addLiquidity(params);
-            // tokenId
-            let position = await nonfungiblePositionManager.getPosition(tokenId++);
-            // console.log(position)
-            return [position.liquidity, liquidity];
-        }
+            it("Should correctly remove liquidity & collect when lower <= price <= upper", async function() {
+                // console.log(await tickMath.getTickAtSqrtRatio(getSqrtPriceX96FromSqrtPrice(Math.sqrt(1415.2195))));
+                // console.log(await tickMath.getTickAtSqrtRatio(getSqrtPriceX96FromSqrtPrice(Math.sqrt(2235.0459))));
+                let params = {
+                    liquidity : (470350844781244533593n / 2n),
+                    tokenId : 1,
+                    poolId : 1,
+                    amount0Min : 0,
+                    amount1Min : 0
+                }
 
-        it("Should correctly add liquidity when lower <= price <= upper.", async function() {
-            let ret = await addLiquidity(73894n, 78004n, ethers.parseEther("1"), 0);
-            expect(ret[0]).to.equal(ret[1]);
+                let tx =  await nonfungiblePositionManager.connect(LP).removeLiquidity(params);
+                let rec = await tx.wait();
+                expect(scailing(rec.logs[0].args[3])).to.equal(scailing(2511202624581185400160n / 2n));
+                params = {
+                    tokenId : 1,
+                    to : LP
+                }
+                let balance = await suin.balanceOf(LP);
+
+                tx = await nonfungiblePositionManager.connect(LP).collect(params);
+                rec = await tx.wait();
+                expect(rec.logs[2].args[1]).to.equal(LP);
+                expect(scailing(rec.logs[2].args[2])).to.equal(scailing(await suin.balanceOf(LP) -  balance));
+            })
+
+
+            it("Should correctly remove liquidity & collect when upper < price", async function() {
+                let params = {
+                    liquidity : 4713676098071137621473n,
+                    tokenId : 2,
+                    poolId : 1,
+                    amount0Min : 0,
+                    amount1Min : 0
+                }
+
+                let tx =  await nonfungiblePositionManager.connect(LP).removeLiquidity(params);
+                let rec = await tx.wait();
+                expect(scailing(rec.logs[0].args[2])).to.equal(1);
+                
+                params = {
+                    tokenId : 2,
+                    to : LP
+                }
+                let balance = await suin.balanceOf(LP);
+
+                tx = await nonfungiblePositionManager.connect(LP).collect(params);
+                rec = await tx.wait();
+                expect(rec.logs[1].args[1]).to.equal(LP);
+                expect(scailing(rec.logs[1].args[2])).to.equal( scailing(await suin.balanceOf(LP) -  balance));
+            })
         })
-
-        it("Should correctly add liquidity when price < lower", async function() {
-            let ret = await addLiquidity(76964n, 77164n, ethers.parseEther("1"), 0);
-            expect(ret[0]).to.equal(ret[1]);
-        })
-
-        it("Should correctly add liquidity when upper < price ", async function() {
-            let ret = await addLiquidity(74245n, 74568n, 0, ethers.parseEther("1500"));
-            expect(ret[0]).to.equal(ret[1]);
-        })
-
-        // it("Should correctly remove liquidity", async function() {
-        //     await pool.connect(LP).approve(router.target, ethers.parseEther("500"));
-        //     await router.connect(LP).removeLiquidity(suin, usdt, ethers.parseEther("500"), LP);
-        //     expect(await suin.balanceOf(pool.target)).to.equal(ethers.parseEther("50"));
-        //     expect(await usdt.balanceOf(pool.target)).to.equal(ethers.parseEther("5000"));
-        //     expect(await pool.balanceOf(LP)).to.equal(ethers.parseEther("500"));
-
-        //     // 원상 복구
-        //     await suin.connect(LP).approve(router.target, ethers.parseEther("50"));
-        //     await usdt.connect(LP).approve(router.target, ethers.parseEther("5000"));
-        //     await router.connect(LP).addLiquidity(suin, usdt, ethers.parseEther("50"), ethers.parseEther("5000"), 0, 0, LP);
-        //     expect(await suin.balanceOf(pool.target)).to.equal(ethers.parseEther("100"));
-        //     expect(await usdt.balanceOf(pool.target)).to.equal(ethers.parseEther("10000"));
-        //     expect(await pool.balanceOf(LP)).to.equal(ethers.parseEther("1000"));
-        // })
     })
 /*
 
