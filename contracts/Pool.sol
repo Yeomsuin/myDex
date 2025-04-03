@@ -11,6 +11,7 @@ import "./lib/Tick.sol";
 import "./lib/Position.sol";
 import "./lib/SqrtPriceMath.sol";
 import "./lib/TickMath.sol";
+import "./lib/SwapMath.sol";
 import './interfaces/IMintCallBack.sol';
 import "./interfaces/IPool.sol";
 
@@ -36,8 +37,10 @@ contract Pool is IPool {
         uint16 observationCardinality;
         // the next maximum number of observations to store, triggered in observations.write
         uint16 observationCardinalityNext;
+        bool unlocked;
     }
 
+    uint24 public fee;
     uint256 public feeGrowthGlobal0X128;
     uint256 public feeGrowthGlobal1X128;
     uint128 public liquidity;
@@ -50,12 +53,14 @@ contract Pool is IPool {
         token0 = _token0;
         token1 = _token1;
         owner = msg.sender;
+        fee = 30000;
         slot0 = Slot0({
          sqrtPriceX96 : sqrtPriceX96,
          tick : TickMath.getTickAtSqrtRatio(sqrtPriceX96),
          observationIndex : 0,
          observationCardinality : 0,
-         observationCardinalityNext : 0
+         observationCardinalityNext : 0,
+         unlocked: false
         });
     }
 
@@ -201,29 +206,138 @@ contract Pool is IPool {
     }
 
 
-
-
-    function swap(uint amount0Out, uint amount1Out, address to) public override {
-        if(amount0Out > 0) IERC20(token0).transfer(to, amount0Out);
-        if(amount1Out > 0) IERC20(token1).transfer(to, amount1Out);
-
-        uint balance0 = IERC20(token0).balanceOf(address(this));
-        uint balance1 = IERC20(token1).balanceOf(address(this));
-
-        require(reserve0 > amount0Out && reserve1 > amount1Out);
-
-        uint amount0In = (balance0 > reserve0) ? (balance0 - reserve0) : 0;
-        uint amount1In = (balance1 > reserve1) ? (balance1 - reserve1) : 0;
-
-        require(amount0In > 0 || amount1In > 0);
-
-        uint balance0WithFee = balance0 * 1000 - amount0In * 3;
-        uint balance1WithFee = balance1 * 1000 - amount1In * 3;
-
-        require(balance0WithFee * balance1WithFee >= reserve0 * reserve1 * 1000**2);
- 
-        _update(balance0, balance1);
+    struct SwapCache {
+        // liquidity at the beginning of the swap
+        uint128 liquidityStart;
+        // the current value of the tick accumulator, computed only if we cross an initialized tick
+        int56 tickCumulative;
     }
+
+     // the top level state of the swap, the results of which are recorded in storage at the end
+    struct SwapState {
+        // the amount remaining to be swapped in/out of the input/output asset
+        int256 amountSpecifiedRemaining;
+        // the amount already swapped out/in of the output/input asset
+        int256 amountCalculated;
+        // current sqrt(price)
+        uint160 sqrtPriceX96;
+        // the tick associated with the current price
+        int24 tick;
+        // the global fee growth of the input token
+        uint256 feeGrowthGlobalX128;
+        // the current liquidity in range
+        uint128 liquidity;
+    }
+
+    struct StepComputations {
+        // the price at the beginning of the step
+        uint160 sqrtPriceStartX96;
+        // the next tick to swap to from the current tick in the swap direction
+        int24 tickNext;
+        // whether tickNext is initialized or not
+        bool initialized;
+        // sqrt(price) for the next tick (1/0)
+        uint160 sqrtPriceNextX96;
+        // how much is being swapped in in this step
+        uint256 amountIn;
+        // how much is being swapped out
+        uint256 amountOut;
+        // how much fee is being paid in
+        uint256 feeAmount;
+    }
+
+
+    function swap(
+        address recipient,
+        bool zeroForOne,
+        int256 amountSpecified,
+        uint160 sqrtPriceLimitX96,
+        bytes calldata data
+    ) external override  returns (int256 amount0, int256 amount1) {
+        Slot0 memory slot0Start = slot0;
+
+
+        require(slot0Start.unlocked);
+
+        slot0Start.unlocked = false;
+
+        bool exactIn = amountSpecified > 0;
+
+        SwapCache memory cache = SwapCache({
+            liquidityStart: liquidity,
+            tickCumulative: 0
+        });
+
+        SwapState memory state = SwapState({
+            amountSpecifiedRemaining : amountSpecified,
+            amountCalculated : 0,
+            sqrtPriceX96 : slot0Start.sqrtPriceX96,
+            tick : slot0Start.tick,
+            feeGrowthGlobalX128 : zeroForOne ? feeGrowthGlobal0X128 : feeGrowthGlobal1X128,
+            liquidity : cache.liquidityStart
+        });
+
+
+        while(state.amountSpecifiedRemaining != 0 && state.sqrtPriceX96 != sqrtPriceLimitX96){
+            StepComputations memory step;
+
+            step.sqrtPriceStartX96 = state.sqrtPriceX96;
+
+            // *수정 bitmap 구현
+            // nextTick 구하기
+
+            // ensure that we do not overshoot the min/max tick, as the tick bitmap is not aware of these bounds
+            if (step.tickNext < TickMath.MIN_TICK) {
+                step.tickNext = TickMath.MIN_TICK;
+            } else if (step.tickNext > TickMath.MAX_TICK) {
+                step.tickNext = TickMath.MAX_TICK;
+            }
+
+            step.sqrtPriceNextX96 = TickMath.getSqrtRatioAtTick(step.tickNext);
+            
+            (state.sqrtPriceX96, step.amountIn, step.amountOut, step.feeAmount) = SwapMath.computeSwapStep(
+                state.sqrtPriceX96,
+                (zeroForOne ?  step.sqrtPriceNextX96 < sqrtPriceLimitX96 : step.sqrtPriceNextX96 > sqrtPriceLimitX96)
+                    ? sqrtPriceLimitX96 
+                    : step.sqrtPriceNextX96, 
+                 state.liquidity,
+                 state.amountSpecifiedRemaining,
+                 fee
+            );
+
+            if(exactIn){
+                // + -> 0  : 남은 amountIn의 양
+                state.amountSpecifiedRemaining -= int256(step.amountIn + step.feeAmount);
+                // 0 -> - :  amountOut의 합
+                state.amountCalculated -= int256(step.amountOut);
+            }
+            else{
+                state.amountSpecifiedRemaining += int256(step.amountOut);
+                state.amountCalculated += int256(step.amountIn + step.feeAmount);
+            }
+        }
+    }
+    // function swap(uint amount0Out, uint amount1Out, address to) public override {
+    //     if(amount0Out > 0) IERC20(token0).transfer(to, amount0Out);
+    //     if(amount1Out > 0) IERC20(token1).transfer(to, amount1Out);
+
+    //     uint balance0 = IERC20(token0).balanceOf(address(this));
+    //     uint balance1 = IERC20(token1).balanceOf(address(this));
+
+    //     require(reserve0 > amount0Out && reserve1 > amount1Out);
+
+    //     uint amount0In = (balance0 > reserve0) ? (balance0 - reserve0) : 0;
+    //     uint amount1In = (balance1 > reserve1) ? (balance1 - reserve1) : 0;
+
+    //     require(amount0In > 0 || amount1In > 0);
+
+    //     uint balance0WithFee = balance0 * 1000 - amount0In * 3;
+    //     uint balance1WithFee = balance1 * 1000 - amount1In * 3;
+
+    //     require(balance0WithFee * balance1WithFee >= reserve0 * reserve1 * 1000**2);
+ 
+    //     _update(balance0, balance1);
+    // }
 
 
     function getReserves () public view override returns (uint _reserve0, uint _reserve1) {

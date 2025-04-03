@@ -13,5 +13,5 @@ interface IPool {
     function mint(int24 tickLower, int24 tickUpper, uint128 liquidity, bytes calldata data) external returns (uint256 amount0, uint256 amount1);
     function burn(int24 tickLower, int24 tickUpper, uint128 amount) external returns (uint256 amount0, uint256 amount1);
     function collect(address to, int24 tickLower, int24 tickUpper, uint128 amount0Requested,uint128 amount1Requested) external returns (uint128 amount0, uint128 amount1);
-    function swap(uint amount0Out, uint amount1Out, address to) external;
+    function swap(address to, bool zeroForOne, int256 amountSpecified, uint160 sqrtPriceLimitX96, bytes calldata data) external returns (int256 amount0, int256 amount1);
 }

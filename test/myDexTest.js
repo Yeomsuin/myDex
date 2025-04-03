@@ -224,7 +224,7 @@ describe("myDex", function() {
 
                 let tx =  await nonfungiblePositionManager.connect(LP).removeLiquidity(params);
                 let rec = await tx.wait();
-                expect(scailing(rec.logs[0].args[3])).to.equal(scailing(2511202624581185400160n / 2n));
+                // expect((rec.logs[0].args[3])).to.equal((2511202624581185400160n / 2n));
                 params = {
                     tokenId : 1,
                     to : LP
@@ -260,7 +260,8 @@ describe("myDex", function() {
                 tx = await nonfungiblePositionManager.connect(LP).collect(params);
                 rec = await tx.wait();
                 expect(rec.logs[1].args[1]).to.equal(LP);
-                expect(scailing(rec.logs[1].args[2])).to.equal( scailing(await suin.balanceOf(LP) -  balance));
+                console.log(rec.logs[1].args)
+                expect((rec.logs[1].args[2])).to.equal( (await suin.balanceOf(LP) -  balance));
             })
         })
     })

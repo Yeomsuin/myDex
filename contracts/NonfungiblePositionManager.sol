@@ -6,6 +6,7 @@ import "hardhat/console.sol";
 
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/utils/math/Math.sol";
 import "./interfaces/IMintCallBack.sol";
 import "./lib/PoolHelper.sol";
 import "./lib/TickMath.sol";
@@ -111,6 +112,9 @@ contract NonfungiblePositionManager is ERC721, IMintCallBack{
     //   address private immutable _tokenDescriptor;
 
     address public factory;
+
+    uint256 constant Q128 = 0x100000000000000000000000000000000;
+    
 
     constructor(address _factory) ERC721('Uniswap Positions NFT', 'UNI-POS-NFT'){
         factory = _factory;
@@ -251,11 +255,26 @@ contract NonfungiblePositionManager is ERC721, IMintCallBack{
         require(amount0 >= params.amount0Min && amount1 >= params.amount1Min, 'Price slippage check');
         (, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128, , ) = pool.getPositions(position.tickLower, position.tickUpper);
 
-        position.tokensOwed0 += uint128(amount0) + uint128((feeGrowthInside0LastX128 - position.feeGrowthInside0LastX128) * positionLiquidity /  0x100000000000000000000000000000000);
-        position.tokensOwed1 += uint128(amount1) + uint128((feeGrowthInside1LastX128 - position.feeGrowthInside1LastX128) * positionLiquidity / 0x100000000000000000000000000000000);
-
+        position.tokensOwed0 +=
+            uint128(amount0) +
+            uint128(
+                    Math.mulDiv(
+                    feeGrowthInside0LastX128 - position.feeGrowthInside0LastX128,
+                    positionLiquidity,
+                    Q128
+                )
+            );
+        position.tokensOwed1 +=
+            uint128(amount1) +
+            uint128(
+                    Math.mulDiv(
+                    feeGrowthInside1LastX128 - position.feeGrowthInside1LastX128,
+                    positionLiquidity,
+                    Q128
+                )
+            );
         position.feeGrowthInside0LastX128 = feeGrowthInside0LastX128;
-        position.feeGrowthInside1LastX128 =feeGrowthInside1LastX128;
+        position.feeGrowthInside1LastX128 = feeGrowthInside1LastX128;
 
         position.liquidity = positionLiquidity - params.liquidity;
 
@@ -270,9 +289,9 @@ contract NonfungiblePositionManager is ERC721, IMintCallBack{
         returns(uint256 amount0, uint256 amount1)
     {
         Positions storage position = _positions[params.tokenId];
-        uint128 positionLiquidity = position.liquidity;
 
         PoolInfo memory poolInfo = _poolIdToPoolInfo[position.poolId];
+
         IPool pool = IPool(PoolHelper.getPool(factory, poolInfo.token0, poolInfo.token1));    
 
         (uint128 tokensOwed0, uint128 tokensOwed1) = (position.tokensOwed0, position.tokensOwed1);
@@ -281,9 +300,22 @@ contract NonfungiblePositionManager is ERC721, IMintCallBack{
             // feeInside update
             pool.burn(position.tickLower, position.tickUpper, 0);
             (, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128, , ) = pool.getPositions(position.tickLower, position.tickUpper);
-            tokensOwed0 += uint128(amount0) + uint128((feeGrowthInside0LastX128 - position.feeGrowthInside0LastX128) * positionLiquidity /  0x100000000000000000000000000000000);
-            tokensOwed1 += uint128(amount1) + uint128((feeGrowthInside1LastX128 - position.feeGrowthInside1LastX128) * positionLiquidity / 0x100000000000000000000000000000000);
-        
+            
+            tokensOwed0 += uint128(
+                Math.mulDiv(
+                    feeGrowthInside0LastX128 - position.feeGrowthInside0LastX128,
+                    position.liquidity,
+                    Q128
+                )
+            );
+            tokensOwed1 += uint128(
+                Math.mulDiv(
+                    feeGrowthInside1LastX128 - position.feeGrowthInside1LastX128,
+                    position.liquidity,
+                    Q128
+                )
+            );
+
             position.feeGrowthInside0LastX128 = feeGrowthInside0LastX128;
             position.feeGrowthInside1LastX128 = feeGrowthInside1LastX128;
         }
