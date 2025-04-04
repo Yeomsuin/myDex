@@ -12,6 +12,7 @@ import "./lib/Position.sol";
 import "./lib/SqrtPriceMath.sol";
 import "./lib/TickMath.sol";
 import "./lib/SwapMath.sol";
+import './libraries/TickBitmap.sol';
 import './interfaces/IMintCallBack.sol';
 import "./interfaces/ISwapCallBack.sol";
 import "./interfaces/IPool.sol";
@@ -20,12 +21,15 @@ contract Pool is IPool {
     using Tick for mapping(int24 => Tick.Info);
     using Position for mapping(int24 => mapping(int24 => Position.Info));
     using Position for Position.Info;
+    using TickBitmap for mapping(int16 => uint256);
+
     address public immutable token0;
     address public immutable token1;
     address public immutable owner;
     uint private reserve0;
     uint private reserve1;
     uint private k; // etherReserve * reserve1
+    int24 public immutable tickSpacing = 1;
     uint256 constant Q128 = 0x100000000000000000000000000000000;
 
      struct Slot0 {
@@ -50,6 +54,7 @@ contract Pool is IPool {
     // [lowerTick][upperTick] => position.info
     mapping(int24 => mapping(int24 => Position.Info)) public positions;
     mapping(int24 => Tick.Info) public ticks;
+    mapping(int16 => uint256) public tickBitmap;
 
     constructor(address _token0, address _token1, uint160 sqrtPriceX96) {
         token0 = _token0;
@@ -96,10 +101,11 @@ contract Pool is IPool {
                 true
             );
 
-        // * tickBitmap 구현 시 추가
-        // if (flippedLower)  tickBitmap.flipTick(tickLower, tickSpacing);
+        if (flippedLower)  
+            tickBitmap.flipTick(tickLower, tickSpacing);
         
-        // if (flippedUpper)  tickBitmap.flipTick(tickUpper, tickSpacing);
+        if (flippedUpper)  
+            tickBitmap.flipTick(tickUpper, tickSpacing);
         
         // Position 안의 FeeGrowth 구하기 / 유동성 공급/제거로는 Fee는 변화가 없지만 최신화만
         (uint256 feeGrowthInside0X128, uint256 feeGrowthInside1X128) =
@@ -285,18 +291,12 @@ contract Pool is IPool {
 
             step.sqrtPriceStartX96 = state.sqrtPriceX96;
 
-            // *수정 bitmap 구현
-            
-            /* 
-            .
-            .
-            .
-                nextTick 구하기
-            .   
-            .
-            .
-            .
-            */
+
+            (step.tickNext, step.initialized) = tickBitmap.nextInitializedTickWithinOneWord(
+                state.tick,
+                tickSpacing,
+                zeroForOne
+            );
 
             // ensure that we do not overshoot the min/max tick, as the tick bitmap is not aware of these bounds
             if (step.tickNext < TickMath.MIN_TICK) {

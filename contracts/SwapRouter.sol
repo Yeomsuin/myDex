@@ -93,29 +93,4 @@ contract SwapRouter is ISwapRouter, ISwapCallBack {
 
         require(amountIn <= params.amountInMaximum);
     }
-
-
-
-    // function swapExactTokenToToken(address token0, address token1, uint amountIn, uint amountOutMin, address to) public returns (uint amountOut){
-    //     (address tokenA,) = PoolHelper.sortTokens(token0, token1);
-    //     address pool = IFactory(factory).getTokensToPool(token0, token1);
-    //     amountOut = PoolHelper.getOutputAmount(factory, token0, token1, amountIn);
-    //     require(amountOut >= amountOutMin);
-    //     (uint amount0Out, uint amount1Out) = tokenA == token0 ?  (uint(0), amountOut) : (amountOut, uint(0));
-    //     IERC20(token0).transferFrom(msg.sender, pool, amountIn);
-    //     IPool(pool).swap(amount0Out, amount1Out, to);
-    // }
-
-    // function swapTokenToExactToken(address token0, address token1, uint amountOut, uint amountInMax, address to) public returns (uint amountIn){
-    //     (address tokenA,) = PoolHelper.sortTokens(token0, token1);
-    //     address pool = IFactory(factory).getTokensToPool(token0, token1);
-    //     amountIn = PoolHelper.getInputAmount(factory, token0, token1, amountOut);
-
-    //     require(amountIn <= amountInMax);
-
-    //     (uint amount0Out, uint amount1Out) = tokenA == token0 ? (uint(0), amountOut) : (amountOut, uint(0));
-        
-    //     IERC20(token0).transferFrom(msg.sender, pool, amountIn);
-    //     IPool(pool).swap(amount0Out, amount1Out, to);
-    // }
 }
