@@ -11,5 +11,15 @@ interface ISwapRouter {
         uint160 sqrtPriceLimitX96;
     }
 
+    struct ExactOutputParams {
+        address tokenIn;
+        address tokenOut;
+        address recipient;
+        uint256 amountOut;
+        uint256 amountInMaximum;
+        uint160 sqrtPriceLimitX96;
+    }
+
     function exactInput(ExactInputParams calldata params) external payable returns(uint256 amountOut);
+    function exactOutput(ExactOutputParams calldata params) external payable returns(uint256 amountIn);
 }

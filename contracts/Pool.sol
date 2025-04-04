@@ -13,6 +13,7 @@ import "./lib/SqrtPriceMath.sol";
 import "./lib/TickMath.sol";
 import "./lib/SwapMath.sol";
 import './interfaces/IMintCallBack.sol';
+import "./interfaces/ISwapCallBack.sol";
 import "./interfaces/IPool.sol";
 
 contract Pool is IPool {
@@ -25,6 +26,7 @@ contract Pool is IPool {
     uint private reserve0;
     uint private reserve1;
     uint private k; // etherReserve * reserve1
+    uint256 constant Q128 = 0x100000000000000000000000000000000;
 
      struct Slot0 {
         // the current price
@@ -254,8 +256,8 @@ contract Pool is IPool {
         uint160 sqrtPriceLimitX96,
         bytes calldata data
     ) external override  returns (int256 amount0, int256 amount1) {
+     
         Slot0 memory slot0Start = slot0;
-
 
         require(slot0Start.unlocked);
 
@@ -284,7 +286,17 @@ contract Pool is IPool {
             step.sqrtPriceStartX96 = state.sqrtPriceX96;
 
             // *수정 bitmap 구현
-            // nextTick 구하기
+            
+            /* 
+            .
+            .
+            .
+                nextTick 구하기
+            .   
+            .
+            .
+            .
+            */
 
             // ensure that we do not overshoot the min/max tick, as the tick bitmap is not aware of these bounds
             if (step.tickNext < TickMath.MIN_TICK) {
@@ -312,32 +324,83 @@ contract Pool is IPool {
                 state.amountCalculated -= int256(step.amountOut);
             }
             else{
+                // - -> 0  : 남은 amountOut의 양
                 state.amountSpecifiedRemaining += int256(step.amountOut);
+                // 0 -> +  : amountIn의 합
                 state.amountCalculated += int256(step.amountIn + step.feeAmount);
             }
+
+            
+            if(state.liquidity > 0) {
+                state.feeGrowthGlobalX128 += Math.mulDiv(step.feeAmount, Q128, state.liquidity);
+            }
+
+            // Shift Tick if target price riched the next price
+            if(state.sqrtPriceX96 == step.sqrtPriceNextX96){
+                // bitmap init
+                if(step.initialized){
+                    int128 liquidityNet = ticks.cross(
+                        step.tickNext,
+                        zeroForOne ? state.feeGrowthGlobalX128 : feeGrowthGlobal0X128,
+                        zeroForOne ? feeGrowthGlobal1X128 : state.feeGrowthGlobalX128
+                    );
+
+                    state.liquidity = zeroForOne ? state.liquidity - uint128(-liquidityNet) : state.liquidity + uint128(liquidityNet);
+                }
+
+                state.tick = zeroForOne ? state.tick - 1: state.tick;
+            }
+            else{
+                // cross tick이 끝났을 때 || 안 변했을 때 tick update
+                state.tick = TickMath.getTickAtSqrtRatio(state.sqrtPriceX96);
+            }
+
         }
+
+        // slot0에 update
+        if(state.tick != slot0Start.tick){
+            slot0.sqrtPriceX96 = state.sqrtPriceX96;
+            slot0.tick = state.tick;
+        }
+        else{
+            slot0.sqrtPriceX96 = state.sqrtPriceX96;
+        }
+
+        // liquidity Update
+        if(cache.liquidityStart != state.liquidity) liquidity = state.liquidity;
+
+        
+        // Global Fee update
+        if(zeroForOne){
+            feeGrowthGlobal0X128 = state.feeGrowthGlobalX128;
+        }
+        else{
+            feeGrowthGlobal1X128 = state.feeGrowthGlobalX128;
+        }
+
+        // zeroForOne  1. A'->B / 2. A->B' / 2. B'->A / 1. B->A'
+        (amount0, amount1) = zeroForOne == exactIn
+            ? (amountSpecified - state.amountSpecifiedRemaining, state.amountCalculated)
+            : (state.amountCalculated, amountSpecified - state.amountSpecifiedRemaining);
+        
+        // transfer
+        if(zeroForOne){
+            if(amount1 < 0) IERC20(token1).transfer(recipient, uint256(-amount1));
+
+            uint256 balance0Before = IERC20(token0).balanceOf(address(this));
+            ISwapCallBack(msg.sender).swapCallBack(amount0, amount1, data);
+            require(balance0Before + uint256(amount0) <= IERC20(token0).balanceOf(address(this)));
+        }
+        else{
+            if(amount0 < 0) IERC20(token0).transfer(recipient, uint256(-amount0));
+        
+            uint256 balance1Before = IERC20(token1).balanceOf(address(this));
+            ISwapCallBack(msg.sender).swapCallBack(amount0, amount1, data);
+            require(balance1Before + uint256(amount1) <= IERC20(token1).balanceOf(address(this)));
+        }
+
+        slot0.unlocked = true;
     }
-    // function swap(uint amount0Out, uint amount1Out, address to) public override {
-    //     if(amount0Out > 0) IERC20(token0).transfer(to, amount0Out);
-    //     if(amount1Out > 0) IERC20(token1).transfer(to, amount1Out);
-
-    //     uint balance0 = IERC20(token0).balanceOf(address(this));
-    //     uint balance1 = IERC20(token1).balanceOf(address(this));
-
-    //     require(reserve0 > amount0Out && reserve1 > amount1Out);
-
-    //     uint amount0In = (balance0 > reserve0) ? (balance0 - reserve0) : 0;
-    //     uint amount1In = (balance1 > reserve1) ? (balance1 - reserve1) : 0;
-
-    //     require(amount0In > 0 || amount1In > 0);
-
-    //     uint balance0WithFee = balance0 * 1000 - amount0In * 3;
-    //     uint balance1WithFee = balance1 * 1000 - amount1In * 3;
-
-    //     require(balance0WithFee * balance1WithFee >= reserve0 * reserve1 * 1000**2);
- 
-    //     _update(balance0, balance1);
-    // }
 
 
     function getReserves () public view override returns (uint _reserve0, uint _reserve1) {
