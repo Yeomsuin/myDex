@@ -31,7 +31,6 @@ contract SwapRouter is ISwapRouter, ISwapCallBack {
                 ? (data.tokenIn < data.tokenOut , uint256(amount0Delta))
                 : (data.tokenIn > data.tokenOut, uint256(amount1Delta));    
 
-
         if(exactIn){
             IERC20(data.tokenIn).transferFrom(data.to, msg.sender, amountToPay);
         }

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.28;
 
+import "hardhat/console.sol";
+
 library Tick {
       // info stored for each initialized individual tick
     struct Info {

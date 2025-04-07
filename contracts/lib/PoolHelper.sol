@@ -13,7 +13,7 @@ library PoolHelper {
 
     function sortTokens(address token0, address token1) pure public returns (address tokenA, address tokenB){
         require(token0 != token1);
-        (tokenA, tokenB) = (token0 > token1) ? (token0, token1) : (token1, token0);
+        (tokenA, tokenB) = (token0 < token1) ? (token0, token1) : (token1, token0);
         require(tokenA != address(0));
     }
 

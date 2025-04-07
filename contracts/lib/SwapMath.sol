@@ -103,7 +103,7 @@ library SwapMath {
         }   
 
         // Cross-tick swap인 경우 체크
-        bool cross = sqrtRatioCurrentX96 == sqrtRatioNextX96;
+        bool cross = sqrtRatioTargetX96  == sqrtRatioNextX96;
 
         // 고정 안된 토큰 amount 계산
         // 경우의 수 :  zeroForOne / max / exact -> 8개

@@ -7,7 +7,15 @@ const ALCHEMY_API_KEY = vars.get("ALCHEMY_API_KEY");
 const PRIVATE_KEY = vars.get("PRIVATE_KEY");
 
 module.exports = {
-  solidity: "0.8.28",
+  solidity: {
+    version : "0.8.28",
+    settings: {
+      optimizer: {
+        enabled: true,
+        runs: 50 // 낮을수록 코드 작아짐
+      }
+    }
+  },
   // defaultNetwork: "sepolia",
   // networks: {
   //   hardhat: {},

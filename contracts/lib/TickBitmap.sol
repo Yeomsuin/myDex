@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.28;
 
+import "hardhat/console.sol";
 import './BitMath.sol';
 
 /// @title Packed tick initialized state library
@@ -61,13 +62,13 @@ library TickBitmap {
             next = initialized
                 ? (compressed - int24(int8(bitPos) - int8(BitMath.mostSignificantBit(masked)))) * tickSpacing
                 : (compressed - int24(int8(bitPos))) * tickSpacing;
+
         } else {
             // start from the word of the next tick, since the current tick state doesn't matter
             (int16 wordPos, uint8 bitPos) = position(compressed + 1);
             // all the 1s at or to the left of the bitPos
             uint256 mask = ~((1 << bitPos) - 1);
             uint256 masked = self[wordPos] & mask;
-
             // if there are no initialized ticks to the left of the current tick, return leftmost in the word
             initialized = masked != 0;
             // overflow/underflow is possible, but prevented externally by limiting both tickSpacing and tick

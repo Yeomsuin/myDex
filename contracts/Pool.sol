@@ -12,7 +12,7 @@ import "./lib/Position.sol";
 import "./lib/SqrtPriceMath.sol";
 import "./lib/TickMath.sol";
 import "./lib/SwapMath.sol";
-import './libraries/TickBitmap.sol';
+import './lib/TickBitmap.sol';
 import './interfaces/IMintCallBack.sol';
 import "./interfaces/ISwapCallBack.sol";
 import "./interfaces/IPool.sol";
@@ -60,14 +60,14 @@ contract Pool is IPool {
         token0 = _token0;
         token1 = _token1;
         owner = msg.sender;
-        fee = 30000;
+        fee = 3000;
         slot0 = Slot0({
          sqrtPriceX96 : sqrtPriceX96,
          tick : TickMath.getTickAtSqrtRatio(sqrtPriceX96),
          observationIndex : 0,
          observationCardinality : 0,
          observationCardinalityNext : 0,
-         unlocked: false
+         unlocked: true
         });
     }
 
@@ -93,7 +93,7 @@ contract Pool is IPool {
             );
 
         bool flippedUpper = ticks.update(
-                tickLower,
+                tickUpper,
                 tick,
                 liquidityDelta,
                 _feeGrowthGlobal0X128,
@@ -291,7 +291,6 @@ contract Pool is IPool {
 
             step.sqrtPriceStartX96 = state.sqrtPriceX96;
 
-
             (step.tickNext, step.initialized) = tickBitmap.nextInitializedTickWithinOneWord(
                 state.tick,
                 tickSpacing,
@@ -306,7 +305,7 @@ contract Pool is IPool {
             }
 
             step.sqrtPriceNextX96 = TickMath.getSqrtRatioAtTick(step.tickNext);
-            
+
             (state.sqrtPriceX96, step.amountIn, step.amountOut, step.feeAmount) = SwapMath.computeSwapStep(
                 state.sqrtPriceX96,
                 (zeroForOne ?  step.sqrtPriceNextX96 < sqrtPriceLimitX96 : step.sqrtPriceNextX96 > sqrtPriceLimitX96)
@@ -382,7 +381,8 @@ contract Pool is IPool {
         (amount0, amount1) = zeroForOne == exactIn
             ? (amountSpecified - state.amountSpecifiedRemaining, state.amountCalculated)
             : (state.amountCalculated, amountSpecified - state.amountSpecifiedRemaining);
-        
+
+
         // transfer
         if(zeroForOne){
             if(amount1 < 0) IERC20(token1).transfer(recipient, uint256(-amount1));
@@ -393,7 +393,7 @@ contract Pool is IPool {
         }
         else{
             if(amount0 < 0) IERC20(token0).transfer(recipient, uint256(-amount0));
-        
+
             uint256 balance1Before = IERC20(token1).balanceOf(address(this));
             ISwapCallBack(msg.sender).swapCallBack(amount0, amount1, data);
             require(balance1Before + uint256(amount1) <= IERC20(token1).balanceOf(address(this)));
