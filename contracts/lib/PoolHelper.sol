@@ -2,10 +2,10 @@
 pragma solidity ^0.8.28;
 
 import "../interfaces/IFactory.sol";
-import "../interfaces/IPair.sol";
+import "../interfaces/IPool.sol";
 import "hardhat/console.sol";
 
-library Library {
+library PoolHelper {
 
     function quote(uint amount0, uint reserve0, uint reserve1) pure public returns (uint amount1) {
         amount1 = amount0 * reserve1 / reserve0;
@@ -19,15 +19,15 @@ library Library {
 
     function getReserves(address factory, address token0, address token1) public view returns (uint reserve0, uint reserve1) {
         (address tokenA,) = sortTokens(token0, token1);
-        address _pair = getPair(factory, token0, token1);
-        (reserve0, reserve1) = IPair(_pair).getReserves();
+        address _pair = getPool(factory, token0, token1);
+        (reserve0, reserve1) = IPool(_pair).getReserves();
         (reserve0, reserve1) = tokenA == token0 ? (reserve0, reserve1) : (reserve1, reserve0);
     }
 
     
     // factory -> token0/1의 주소로 -> Pair의 Address를 받아옴
-    function getPair(address factory, address token0, address token1) public view returns (address pair){
-        pair = IFactory(factory).getTokensToPair(token0, token1);
+    function getPool(address factory, address token0, address token1) public view returns (address pair){
+        pair = IFactory(factory).getTokensToPool(token0, token1);
     }
 
     function getOutputAmount(address factory, address token0, address token1, uint amountIn)  external view returns (uint amountOut){
