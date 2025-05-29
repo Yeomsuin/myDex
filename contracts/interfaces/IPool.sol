@@ -8,7 +8,6 @@ interface IPool {
         uint256 feeGrowthInside1LastX128,
         uint128 tokensOwed0,
         uint128 tokensOwed1);
-    function getReserves() external view returns (uint _reserve0, uint _reserve1);
     function getCurrentSqrtPriceX96() external view returns (uint160 sqrtPriceX96);
     function mint(int24 tickLower, int24 tickUpper, uint128 liquidity, bytes calldata data) external returns (uint256 amount0, uint256 amount1);
     function burn(int24 tickLower, int24 tickUpper, uint128 amount) external returns (uint256 amount0, uint256 amount1);

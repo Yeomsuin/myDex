@@ -26,9 +26,6 @@ contract Pool is IPool {
     address public immutable token0;
     address public immutable token1;
     address public immutable owner;
-    uint private reserve0;
-    uint private reserve1;
-    uint private k; // etherReserve * reserve1
     int24 public immutable tickSpacing = 1;
     uint256 constant Q128 = 0x100000000000000000000000000000000;
 
@@ -54,6 +51,7 @@ contract Pool is IPool {
     // [lowerTick][upperTick] => position.info
     mapping(int24 => mapping(int24 => Position.Info)) public positions;
     mapping(int24 => Tick.Info) public ticks;
+    
     mapping(int16 => uint256) public tickBitmap;
 
     constructor(address _token0, address _token1, uint160 sqrtPriceX96) {
@@ -69,11 +67,6 @@ contract Pool is IPool {
          observationCardinalityNext : 0,
          unlocked: true
         });
-    }
-
-    function _update(uint balance0, uint balance1) private {
-        reserve0 = balance0;
-        reserve1 = balance1;
     }
 
     function _updatePosition(int24 tickLower, int24 tickUpper, int128 liquidityDelta, int24 tick) private returns(Position.Info storage position){
@@ -313,7 +306,7 @@ contract Pool is IPool {
                     : step.sqrtPriceNextX96, 
                  state.liquidity,
                  state.amountSpecifiedRemaining,
-                 fee
+                 fee    
             );
 
             if(exactIn){
@@ -377,7 +370,7 @@ contract Pool is IPool {
             feeGrowthGlobal1X128 = state.feeGrowthGlobalX128;
         }
 
-        // zeroForOne  1. A'->B / 2. A->B' / 2. B'->A / 1. B->A'
+        // zeroForOne  1. A'-> B / 2. A -> B' / 2. B'->A / 1. B -> A'
         (amount0, amount1) = zeroForOne == exactIn
             ? (amountSpecified - state.amountSpecifiedRemaining, state.amountCalculated)
             : (state.amountCalculated, amountSpecified - state.amountSpecifiedRemaining);
@@ -400,12 +393,6 @@ contract Pool is IPool {
         }
 
         slot0.unlocked = true;
-    }
-
-
-    function getReserves () public view override returns (uint _reserve0, uint _reserve1) {
-        _reserve0 = reserve0;
-        _reserve1 = reserve1;
     }
 
     function getCurrentSqrtPriceX96() external view override returns (uint160 sqrtPriceX96){

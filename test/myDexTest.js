@@ -347,6 +347,8 @@ describe("myDex", function() {
                 await swapRouter.connect(trump).exactOutput(params);
                 // console.log(scaling(await suin.balanceOf(trump)), scaling(await usdt.balanceOf(trump)));
             }) 
+
+
     })
 
 });
